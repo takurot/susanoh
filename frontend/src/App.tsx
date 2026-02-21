@@ -33,6 +33,8 @@ export default function App() {
   const [showcaseLoading, setShowcaseLoading] = useState(false);
   const [showcaseResult, setShowcaseResult] = useState<ShowcaseResult | null>(null);
   const [showcaseError, setShowcaseError] = useState('');
+  const [graphFocusTargetId, setGraphFocusTargetId] = useState<string | null>(null);
+  const [graphFocusRequestId, setGraphFocusRequestId] = useState(0);
 
   const runScenario = async (name: string) => {
     setLoading(name);
@@ -48,6 +50,8 @@ export default function App() {
     try {
       const result = await runShowcaseSmurfing();
       setShowcaseResult(result);
+      setGraphFocusTargetId(result.target_user);
+      setGraphFocusRequestId((prev) => prev + 1);
       refreshStats();
       refreshEvents();
       refreshAnalyses();
@@ -180,7 +184,11 @@ export default function App() {
           </div>
         )}
         <StatsCards stats={stats} />
-        <NetworkGraph data={graph} />
+        <NetworkGraph
+          data={graph}
+          focusTargetId={graphFocusTargetId}
+          focusRequestId={graphFocusRequestId}
+        />
         <IncidentTimeline users={users ?? []} events={events ?? []} analyses={analyses ?? []} />
         <div className="grid grid-cols-2 gap-4">
           <EventStream events={events ?? []} />
