@@ -112,14 +112,16 @@ class L2Engine:
             return result
 
     async def _call_gemini(self, request: AnalysisRequest, api_key: str) -> ArbitrationResult:
+        import asyncio
         from google import genai
 
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
         client = genai.Client(api_key=api_key)
 
         prompt = self._build_prompt(request)
 
-        response = client.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=model_name,
             contents=prompt,
             config=genai.types.GenerateContentConfig(

@@ -40,7 +40,7 @@ npm install
 
 ```bash
 export GEMINI_API_KEY=<your-api-key>
-export GEMINI_MODEL=gemini-2.0-flash
+export GEMINI_MODEL=gemini-2.5-flash
 ```
 
 > APIキー未設定でもローカルフォールバック裁定で動作します。

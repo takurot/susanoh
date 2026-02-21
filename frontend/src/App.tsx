@@ -24,23 +24,29 @@ export default function App() {
   const [stats] = usePolling(fetchStats, 3000);
   const [events] = usePolling(fetchRecentEvents, 3000);
   const [analyses] = usePolling(fetchAnalyses, 3000);
-  const [graph] = usePolling(fetchGraph, 3000);
-  const [users, refreshUsers] = usePolling(fetchUsers, 3000);
+  const [graph] = usePolling(fetchGraph, 5000);
+  const [users, refreshUsers] = usePolling(fetchUsers, 5000);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState('');
 
   const runScenario = async (name: string) => {
     setLoading(name);
-    try { await triggerScenario(name); } catch {}
+    try { await triggerScenario(name); } catch {
+      // Ignore transient API errors in demo control UI.
+    }
     setLoading('');
   };
 
   const toggleStream = async () => {
     if (streaming) {
-      await stopDemo();
+      try { await stopDemo(); } catch {
+        // Ignore transient API errors in demo control UI.
+      }
       setStreaming(false);
     } else {
-      await startDemo();
+      try { await startDemo(); } catch {
+        // Ignore transient API errors in demo control UI.
+      }
       setStreaming(true);
     }
   };

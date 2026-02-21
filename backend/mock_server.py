@@ -143,18 +143,23 @@ class DemoStreamer:
             self._task = None
 
     async def _stream(self) -> None:
-        while self.running:
-            r = random.random()
-            if r < 0.90:
-                events = [self._server.generate_normal_event()]
-            elif r < 0.95:
-                events = self._server.generate_smurfing_events()
-            elif r < 0.98:
-                events = [self._server.generate_rmt_slang_event()]
-            else:
-                events = self._server.generate_layering_events()
+        try:
+            while self.running:
+                r = random.random()
+                if r < 0.90:
+                    events = [self._server.generate_normal_event()]
+                elif r < 0.95:
+                    events = self._server.generate_smurfing_events()
+                elif r < 0.98:
+                    events = [self._server.generate_rmt_slang_event()]
+                else:
+                    events = self._server.generate_layering_events()
 
-            for event in events:
-                await self._callback(event)
+                for event in events:
+                    if not self.running:
+                        return
+                    await self._callback(event)
 
-            await asyncio.sleep(random.uniform(0.1, 0.5))
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+        except asyncio.CancelledError:
+            return
