@@ -91,6 +91,15 @@ class WithdrawRequest(BaseModel):
     amount: int
 
 
+class ShowcaseResult(BaseModel):
+    target_user: str
+    triggered_rules: list[str] = Field(default_factory=list)
+    withdraw_status_code: int
+    latest_state: AccountState
+    latest_risk_score: Optional[int] = None
+    latest_reasoning: Optional[str] = None
+
+
 class GraphNode(BaseModel):
     id: str
     state: AccountState

@@ -96,6 +96,15 @@ export interface UserInfo {
   state: string;
 }
 
+export interface ShowcaseResult {
+  target_user: string;
+  triggered_rules: string[];
+  withdraw_status_code: number;
+  latest_state: string;
+  latest_risk_score?: number;
+  latest_reasoning?: string;
+}
+
 export const fetchStats = () => get<Stats>('/stats');
 export const fetchTransitions = (limit = 50) => get<TransitionLog[]>(`/transitions?limit=${limit}`);
 export const fetchAnalyses = (limit = 20) => get<ArbitrationResult[]>(`/analyses?limit=${limit}`);
@@ -103,6 +112,7 @@ export const fetchRecentEvents = (limit = 20) => get<GameEvent[]>(`/events/recen
 export const fetchUsers = () => get<UserInfo[]>('/users');
 export const fetchGraph = () => get<GraphData>('/graph');
 export const triggerScenario = (name: string) => post<unknown>(`/demo/scenario/${name}`);
+export const runShowcaseSmurfing = () => post<ShowcaseResult>('/demo/showcase/smurfing');
 export const startDemo = () => post<unknown>('/demo/start');
 export const stopDemo = () => post<unknown>('/demo/stop');
 export const tryWithdraw = (userId: string, amount: number) =>

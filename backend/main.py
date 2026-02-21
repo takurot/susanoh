@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.models import (
     AccountState,
     GameEventLog,
+    ShowcaseResult,
     WithdrawRequest,
 )
 from backend.state_machine import StateMachine
@@ -40,6 +41,10 @@ def reset_runtime_state() -> None:
 
 
 async def _process_event(event: GameEventLog) -> dict:
+    return await _process_event_with_options(event, schedule_l2=True)
+
+
+async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) -> dict:
     sm.get_or_create(event.actor_id)
     sm.get_or_create(event.target_id)
 
@@ -56,10 +61,10 @@ async def _process_event(event: GameEventLog) -> dict:
                 f"L1ルール発火: {result.triggered_rules}",
             )
 
-    if result.needs_l2 or (
+    if schedule_l2 and (result.needs_l2 or (
         result.screened
         and sm.get_or_create(event.target_id) != AccountState.NORMAL
-    ):
+    )):
         current_state = sm.get_or_create(event.target_id)
         analysis_req = l1.build_analysis_request(
             event.target_id, event, result.triggered_rules, current_state
@@ -72,38 +77,50 @@ async def _process_event(event: GameEventLog) -> dict:
 async def _run_l2(analysis_req) -> None:
     try:
         verdict = await l2.analyze(analysis_req)
-        current = sm.get_or_create(verdict.target_id)
-        target_state = verdict.recommended_action
-
-        if target_state == AccountState.BANNED:
-            if current == AccountState.RESTRICTED_WITHDRAWAL:
-                sm.transition(
-                    verdict.target_id,
-                    AccountState.UNDER_SURVEILLANCE,
-                    "L2_ANALYSIS",
-                    "GEMINI_VERDICT",
-                    f"L2中間遷移 (risk_score: {verdict.risk_score})",
-                )
-            current = sm.get_or_create(verdict.target_id)
-            if current == AccountState.UNDER_SURVEILLANCE:
-                sm.transition(
-                    verdict.target_id,
-                    AccountState.BANNED,
-                    "L2_ANALYSIS",
-                    "GEMINI_VERDICT",
-                    f"RMT確定 (risk_score: {verdict.risk_score})",
-                )
-        elif target_state == AccountState.UNDER_SURVEILLANCE:
-            if current == AccountState.RESTRICTED_WITHDRAWAL:
-                sm.transition(
-                    verdict.target_id,
-                    AccountState.UNDER_SURVEILLANCE,
-                    "L2_ANALYSIS",
-                    "GEMINI_VERDICT",
-                    f"要監視 (risk_score: {verdict.risk_score})",
-                )
+        _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
     except Exception:
         pass
+
+
+def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: int) -> None:
+    current = sm.get_or_create(target_id)
+    if target_state == AccountState.BANNED:
+        if current == AccountState.RESTRICTED_WITHDRAWAL:
+            sm.transition(
+                target_id,
+                AccountState.UNDER_SURVEILLANCE,
+                "L2_ANALYSIS",
+                "GEMINI_VERDICT",
+                f"L2中間遷移 (risk_score: {risk_score})",
+            )
+        current = sm.get_or_create(target_id)
+        if current == AccountState.UNDER_SURVEILLANCE:
+            sm.transition(
+                target_id,
+                AccountState.BANNED,
+                "L2_ANALYSIS",
+                "GEMINI_VERDICT",
+                f"RMT確定 (risk_score: {risk_score})",
+            )
+    elif target_state == AccountState.UNDER_SURVEILLANCE:
+        if current == AccountState.RESTRICTED_WITHDRAWAL:
+            sm.transition(
+                target_id,
+                AccountState.UNDER_SURVEILLANCE,
+                "L2_ANALYSIS",
+                "GEMINI_VERDICT",
+                f"要監視 (risk_score: {risk_score})",
+            )
+
+
+def _withdraw_status(user_id: str) -> tuple[int, str]:
+    state = sm.get_or_create(user_id)
+    if state == AccountState.NORMAL:
+        return 200, "出金処理完了"
+    sm.blocked_withdrawals += 1
+    if state == AccountState.BANNED:
+        return 403, "アカウントは凍結されています"
+    return 423, "出金が制限されています"
 
 
 # --- Health ---
@@ -144,13 +161,10 @@ async def get_user(user_id: str):
 # --- Withdraw ---
 @app.post("/api/v1/withdraw")
 async def withdraw(req: WithdrawRequest):
-    state = sm.get_or_create(req.user_id)
-    if state == AccountState.NORMAL:
-        return {"status": "ok", "message": "出金処理完了"}
-    sm.blocked_withdrawals += 1
-    if state == AccountState.BANNED:
-        raise HTTPException(403, "アカウントは凍結されています")
-    raise HTTPException(423, "出金が制限されています")
+    status_code, message = _withdraw_status(req.user_id)
+    if status_code == 200:
+        return {"status": "ok", "message": message}
+    raise HTTPException(status_code, message)
 
 
 # --- Release ---
@@ -221,6 +235,53 @@ async def run_scenario(name: str):
         r = await _process_event(event)
         results.append(r)
     return {"scenario": name, "events_sent": len(events), "results": results}
+
+
+@app.post("/api/v1/demo/showcase/smurfing", response_model=ShowcaseResult)
+async def run_showcase_smurfing():
+    target_user = "user_boss_01"
+    events = mock.generate_smurfing_events()
+
+    scenario_results: list[dict] = []
+    trigger_event: GameEventLog | None = None
+    trigger_rules: list[str] = []
+
+    for event in events:
+        result = await _process_event_with_options(event, schedule_l2=False)
+        scenario_results.append(result)
+        if event.target_id == target_user:
+            trigger_event = event
+            if result["triggered_rules"]:
+                trigger_rules = result["triggered_rules"]
+
+    latest_analysis = None
+    if trigger_event:
+        analysis_req = l1.build_analysis_request(
+            target_user,
+            trigger_event,
+            trigger_rules,
+            sm.get_or_create(target_user),
+        )
+        verdict = await l2.analyze(analysis_req)
+        _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+        latest_analysis = verdict
+
+    status_code, _ = _withdraw_status(target_user)
+    if latest_analysis is None:
+        latest_analysis = next(
+            (analysis for analysis in l2.get_analyses(limit=50) if analysis.target_id == target_user),
+            None,
+        )
+
+    rules = sorted({rule for result in scenario_results for rule in result["triggered_rules"]})
+    return ShowcaseResult(
+        target_user=target_user,
+        triggered_rules=rules,
+        withdraw_status_code=status_code,
+        latest_state=sm.get_or_create(target_user),
+        latest_risk_score=latest_analysis.risk_score if latest_analysis else None,
+        latest_reasoning=latest_analysis.reasoning if latest_analysis else None,
+    )
 
 
 @app.post("/api/v1/demo/start")
