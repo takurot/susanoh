@@ -41,11 +41,13 @@ export default function App() {
     if (streaming) {
       try { await stopDemo(); } catch {
         // Ignore transient API errors in demo control UI.
+        return;
       }
       setStreaming(false);
     } else {
       try { await startDemo(); } catch {
         // Ignore transient API errors in demo control UI.
+        return;
       }
       setStreaming(true);
     }

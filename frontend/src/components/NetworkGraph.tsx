@@ -51,8 +51,12 @@ export default function NetworkGraph({ data }: Props) {
   const prevStates = useRef<Record<string, string>>({});
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const [stableData, setStableData] = useState<StableGraphData>({ nodes: [], links: [] });
+  const stableDataRef = useRef<StableGraphData>({ nodes: [], links: [] });
+  const pendingReheatRef = useRef(false);
 
   useEffect(() => {
+    stableDataRef.current = stableData;
+
     const nodeSet = new Set(stableData.nodes);
     const detachedLinks = stableData.links.filter((link) => {
       const sourceDetached = typeof link.source === 'object' && !nodeSet.has(link.source);
@@ -69,6 +73,11 @@ export default function NetworkGraph({ data }: Props) {
         links: stableData.links.length,
       };
     }
+
+    if (pendingReheatRef.current && fgRef.current) {
+      pendingReheatRef.current = false;
+      window.setTimeout(() => fgRef.current?.d3ReheatSimulation(), 100);
+    }
   }, [stableData]);
 
   useEffect(() => {
@@ -83,79 +92,73 @@ export default function NetworkGraph({ data }: Props) {
       prevStates.current[node.id] = node.state;
     }
 
-    let shouldReheat = false;
-    setStableData((prev) => {
-      for (const n of prev.nodes) {
-        const id = nodeIdOf(n);
-        if (id && n.x != null && n.y != null) {
-          positionsRef.current[id] = { x: n.x, y: n.y };
-        }
+    const prev = stableDataRef.current;
+    for (const n of prev.nodes) {
+      const id = nodeIdOf(n);
+      if (id && n.x != null && n.y != null) {
+        positionsRef.current[id] = { x: n.x, y: n.y };
       }
+    }
 
-      const prevNodeMap = new Map<string, GraphNodeObject>(prev.nodes.map((n) => [nodeIdOf(n), n]));
-      const prevLinkMap = new Map<string, GraphLinkObject>(prev.links.map((l) => [linkKey(l), l]));
+    const prevNodeMap = new Map<string, GraphNodeObject>(prev.nodes.map((n) => [nodeIdOf(n), n]));
+    const prevLinkMap = new Map<string, GraphLinkObject>(prev.links.map((l) => [linkKey(l), l]));
 
-      const nextNodes: GraphNodeObject[] = data.nodes.map((incoming) => {
-        const existing = prevNodeMap.get(incoming.id);
-        if (existing) {
-          existing.state = incoming.state;
-          existing.label = incoming.label;
-          return existing;
-        }
-        const pos = positionsRef.current[incoming.id];
-        return pos ? { ...incoming, x: pos.x, y: pos.y } : { ...incoming };
-      });
-      const nextNodeMap = new Map<string, GraphNodeObject>(nextNodes.map((n) => [nodeIdOf(n), n]));
+    const nextNodes: GraphNodeObject[] = data.nodes.map((incoming) => {
+      const existing = prevNodeMap.get(incoming.id);
+      if (existing) {
+        existing.state = incoming.state;
+        existing.label = incoming.label;
+        return existing;
+      }
+      const pos = positionsRef.current[incoming.id];
+      return pos ? { ...incoming, x: pos.x, y: pos.y } : { ...incoming };
+    });
+    const nextNodeMap = new Map<string, GraphNodeObject>(nextNodes.map((n) => [nodeIdOf(n), n]));
 
-      const nextLinks: GraphLinkObject[] = data.links
-        .filter((incoming) => nextNodeMap.has(String(incoming.source)) && nextNodeMap.has(String(incoming.target)))
-        .map((incoming) => {
-          const key = linkKeyOf(incoming.source, incoming.target);
-          const existing = prevLinkMap.get(key);
-          const sourceNode = nextNodeMap.get(String(incoming.source));
-          const targetNode = nextNodeMap.get(String(incoming.target));
-          if (!sourceNode || !targetNode) {
-            return {
-              source: String(incoming.source),
-              target: String(incoming.target),
-              amount: incoming.amount,
-              count: incoming.count,
-            };
-          }
-          if (existing) {
-            existing.source = sourceNode;
-            existing.target = targetNode;
-            existing.amount = incoming.amount;
-            existing.count = incoming.count;
-            return existing;
-          }
+    const nextLinks: GraphLinkObject[] = data.links
+      .filter((incoming) => nextNodeMap.has(String(incoming.source)) && nextNodeMap.has(String(incoming.target)))
+      .map((incoming) => {
+        const key = linkKeyOf(incoming.source, incoming.target);
+        const existing = prevLinkMap.get(key);
+        const sourceNode = nextNodeMap.get(String(incoming.source));
+        const targetNode = nextNodeMap.get(String(incoming.target));
+        if (!sourceNode || !targetNode) {
           return {
-            source: sourceNode,
-            target: targetNode,
+            source: String(incoming.source),
+            target: String(incoming.target),
             amount: incoming.amount,
             count: incoming.count,
           };
-        });
+        }
+        if (existing) {
+          existing.source = sourceNode;
+          existing.target = targetNode;
+          existing.amount = incoming.amount;
+          existing.count = incoming.count;
+          return existing;
+        }
+        return {
+          source: sourceNode,
+          target: targetNode,
+          amount: incoming.amount,
+          count: incoming.count,
+        };
+      });
 
-      const prevNodeIds = new Set(prev.nodes.map((n) => nodeIdOf(n)));
-      const nextNodeIds = new Set(nextNodes.map((n) => nodeIdOf(n)));
-      const nodeTopologyChanged =
-        prevNodeIds.size !== nextNodeIds.size
-        || [...nextNodeIds].some((id) => !prevNodeIds.has(id));
+    const prevNodeIds = new Set(prev.nodes.map((n) => nodeIdOf(n)));
+    const nextNodeIds = new Set(nextNodes.map((n) => nodeIdOf(n)));
+    const nodeTopologyChanged =
+      prevNodeIds.size !== nextNodeIds.size
+      || [...nextNodeIds].some((id) => !prevNodeIds.has(id));
 
-      const prevLinkKeys = new Set(prev.links.map((l) => linkKey(l)));
-      const nextLinkKeys = new Set(data.links.map((l) => linkKeyOf(l.source, l.target)));
-      const linkTopologyChanged =
-        prevLinkKeys.size !== nextLinkKeys.size
-        || [...nextLinkKeys].some((k) => !prevLinkKeys.has(k));
+    const prevLinkKeys = new Set(prev.links.map((l) => linkKey(l)));
+    const nextLinkKeys = new Set(data.links.map((l) => linkKeyOf(l.source, l.target)));
+    const linkTopologyChanged =
+      prevLinkKeys.size !== nextLinkKeys.size
+      || [...nextLinkKeys].some((k) => !prevLinkKeys.has(k));
 
-      shouldReheat = nodeTopologyChanged || linkTopologyChanged || stateChanged;
-      return { nodes: nextNodes, links: nextLinks };
-    });
-
-    if (shouldReheat && fgRef.current) {
-      window.setTimeout(() => fgRef.current?.d3ReheatSimulation(), 100);
-    }
+    pendingReheatRef.current = nodeTopologyChanged || linkTopologyChanged || stateChanged;
+    setStableData({ nodes: nextNodes, links: nextLinks });
   }, [data]);
 
   useEffect(() => {
