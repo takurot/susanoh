@@ -78,11 +78,11 @@
 | ステートマシン | `NORMAL → RESTRICTED_WITHDRAWAL → UNDER_SURVEILLANCE → BANNED` |
 | 出金API | `POST /api/v1/withdraw` で状態に応じた拒否を実演可能にする |
 | ダッシュボード | イベント流、状態遷移、AI判定理由、統計カードを単一画面表示 |
+| 資金フローグラフ | `react-force-graph-2d` でユーザー間資金移動を有向グラフ表示。検知時のノード変色アニメーション |
 | デモシナリオ注入 | `POST /api/v1/demo/scenario/{name}` で攻撃パターンを即注入 |
 
 ### 4.2 Should（時間があれば実装）
 
-- ネットワークグラフ（資金フロー可視化）
 - 手動解除UI（`UNDER_SURVEILLANCE → NORMAL`）
 - `p95判定遅延` 指標の表示
 
@@ -134,16 +134,21 @@ NORMAL -> RESTRICTED_WITHDRAWAL -> UNDER_SURVEILLANCE -> BANNED
 
 ### 6.1 Mock Game Server（合成データ）
 
-| パターン | 割合 | 内容 |
-|---|---:|---|
-| 通常プレイヤー | 90% | 少額取引・自然チャット |
-| スマーフィング | 5% | 複数低レベルアカウントから資金集約 |
-| RMT隠語トレード | 3% | 「D確認」「振込」「3k」等を含む |
-| レイヤリング | 2% | 多段ホップ送金で追跡回避 |
+| パターン | 割合 | 内容 | グラフ上の形状 |
+|---|---:|---|---|
+| 通常プレイヤー | 90% | 少額取引・自然チャット | 疎な双方向エッジ |
+| スマーフィング | 5% | 複数低レベルアカウントから資金集約 | **星型**（多→1の集約） |
+| RMT隠語トレード | 3% | 「D確認」「振込」「3k」等を含む | 太い単方向エッジ |
+| レイヤリング | 2% | 多段ホップ送金で追跡回避 | **チェーン**（A→B→C→D） |
 
 - 送信先: `POST /api/v1/events`
 - 送信間隔: 100〜500ms
 - デモ用シナリオ: `normal`, `rmt-smurfing`, `layering`
+
+**グラフ映えのためのデータ設計ルール**:
+- スマーフィングでは固定の `target_id`（例: `user_boss_01`）に対して5〜8個のサブアカウント（`user_mule_01`〜`08`）から送金し、星型パターンを明示
+- レイヤリングでは `user_layer_A` → `user_layer_B` → `user_layer_C` → `user_layer_D` のチェーンを生成し、追跡線が視覚的に追える構造にする
+- 通常プレイヤーは `user_player_01`〜`20` でランダムなペアの少額取引を生成し、背景ノイズとして機能させる
 
 ### 6.2 Tier 1: スクリーニングエンジン（FastAPI）
 
@@ -151,12 +156,19 @@ NORMAL -> RESTRICTED_WITHDRAWAL -> UNDER_SURVEILLANCE -> BANNED
 
 ```text
 POST /api/v1/events
+GET  /api/v1/events/recent
 POST /api/v1/withdraw
+GET  /api/v1/users
 GET  /api/v1/users/{id}
 GET  /api/v1/stats
 GET  /api/v1/transitions
+GET  /api/v1/graph
 POST /api/v1/users/{id}/release
+POST /api/v1/analyze
+GET  /api/v1/analyses
 POST /api/v1/demo/scenario/{name}
+POST /api/v1/demo/start
+POST /api/v1/demo/stop
 ```
 
 **L1判定ルール（5分スライディングウィンドウ）**
@@ -203,12 +215,37 @@ POST /api/v1/demo/scenario/{name}
 
 | セクション | 表示内容 |
 |---|---|
-| リアルタイムイベント | 最新20件、危険イベントを強調 |
+| 資金フローグラフ | ユーザー間資金移動の有向グラフ（ダッシュボード最上部、視覚的主役） |
 | KPIカード | 総処理件数/L1フラグ/L2分析/BAN件数/ブロック出金件数 |
+| リアルタイムイベント | 最新20件、危険イベントを強調 |
 | AI監査レポート | `risk_score`、`reasoning`、`evidence_event_ids` |
 | アカウント管理 | 状態別一覧 + 手動解除 |
 
 > 注: Streamlitは禁止対象のため使用しない。
+
+**資金フローグラフ仕様**:
+
+- ライブラリ: `react-force-graph-2d`（D3 force-directed のReactラッパー）
+- データソース: `GET /api/v1/graph` から3秒ポーリング
+- ノード = アカウント。色でステータス表現:
+  - 緑 = `NORMAL`
+  - 黄 = `RESTRICTED_WITHDRAWAL`
+  - 橙 = `UNDER_SURVEILLANCE`
+  - 赤 = `BANNED`
+- エッジ = 取引。太さで金額を表現（対数スケール）、矢印で方向を表示
+- 検知演出: ステータス変更時にノードがパルスアニメーション（CSS `@keyframes`）で点滅
+- グラフAPIレスポンス形式:
+
+```json
+{
+  "nodes": [
+    { "id": "user_00184", "state": "BANNED", "label": "user_00184" }
+  ],
+  "links": [
+    { "source": "user_77391", "target": "user_00184", "amount": 1500000, "count": 3 }
+  ]
+}
+```
 
 ---
 
@@ -298,25 +335,28 @@ POST /api/v1/demo/scenario/{name}
 - 「不正対策は必要だが、誤BANで通常ユーザーを傷つけるのが怖い」
 - 「Susanohは出金だけ止めるので、体験を壊さずに隔離できる」
 
-### 0:25-1:10 正常トラフィック表示
+### 0:25-1:00 正常トラフィック表示
 
 - `normal` シナリオを流し、全員 `NORMAL` を確認
+- 資金フローグラフに緑ノードが散在する平和な状態を提示
 - KPIカードで処理継続を表示
 
-### 1:10-1:55 攻撃注入 + 即時隔離
+### 1:00-1:45 攻撃注入 + 即時隔離
 
 - `rmt-smurfing` シナリオ注入
-- 対象アカウントが `RESTRICTED_WITHDRAWAL` に遷移
+- **グラフ上に星型パターンが出現** → 複数ノードからターゲットへ集約する動きを視覚提示
+- 対象アカウントが黄色（`RESTRICTED_WITHDRAWAL`）にパルス変色
 - `POST /api/v1/withdraw` 実行で `423 Locked` を提示
 
-### 1:55-2:35 Gemini裁定
+### 1:45-2:30 Gemini裁定
 
 - L2レスポンスの `reasoning` を読み上げ
 - `risk_score` と `evidence_event_ids` で根拠提示
+- **グラフ上でターゲットノードが赤（`BANNED`）に変化**
 
-### 2:35-3:00 結果と導入性
+### 2:30-3:00 結果と導入性
 
-- 最終状態 `BANNED` を確認
+- 最終状態 `BANNED` + グラフ上で不正ネットワークが赤く染まった全体像を提示
 - 「ゲーム側はイベントを送るだけ」の導入容易性で締める
 
 ---

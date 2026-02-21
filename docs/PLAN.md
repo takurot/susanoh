@@ -144,7 +144,14 @@ PR1 (基盤+モデル)
      - 直近イベント（デフォルト20件、`?limit=` 指定可）を返す
      - ダッシュボードのイベントストリーム表示に使用
 
-3. **L2転送の準備**
+3. **グラフデータAPI** (`backend/main.py`)
+   - `GET /api/v1/graph`
+     - 直近イベントからノード（ユーザー）とリンク（取引）を集約して返す
+     - ノードにはステートマシンの現在状態を付与
+     - リンクには同一ペア間の累計金額・取引回数を集約
+     - レスポンス: `{ nodes: [{id, state, label}], links: [{source, target, amount, count}] }`
+
+4. **L2転送の準備**
    - L2エンドポイント（`POST /api/v1/analyze`）への `httpx` 非同期呼び出し骨格
    - PR4が未完の間は内部関数呼び出しで代替可能な構造にする
 
@@ -154,6 +161,7 @@ PR1 (基盤+モデル)
 - 隠語を含むチャット → L2転送フラグが立つ
 - 5分経過後にウィンドウがリセットされる
 - `GET /api/v1/events/recent` でイベントストリームが取得できる
+- `GET /api/v1/graph` でノード・リンク形式のグラフデータが返る
 
 ---
 
@@ -220,11 +228,12 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 
 1. **合成データ生成** (`backend/mock_server.py`)
    - `MockGameServer` クラス
-     - `generate_normal_event() -> GameEventLog` — 通常取引
-     - `generate_smurfing_events() -> list[GameEventLog]` — スマーフィングパターン（5〜10個のサブアカウント→1ターゲット）
-     - `generate_rmt_slang_event() -> GameEventLog` — 隠語チャット付き取引
-     - `generate_layering_events() -> list[GameEventLog]` — レイヤリング（A→B→C→D）
+     - `generate_normal_event() -> GameEventLog` — 通常取引（`user_player_01`〜`20` のランダムペア少額取引。グラフ上で疎な背景ノイズになる）
+     - `generate_smurfing_events() -> list[GameEventLog]` — スマーフィングパターン（`user_mule_01`〜`08` → `user_boss_01` への集約。グラフ上で**星型**を形成）
+     - `generate_rmt_slang_event() -> GameEventLog` — 隠語チャット付き取引（グラフ上で太い単方向エッジ）
+     - `generate_layering_events() -> list[GameEventLog]` — レイヤリング（`user_layer_A`→`B`→`C`→`D`。グラフ上で**チェーン**を形成）
    - 各生成関数はランダム要素を含みつつ、L1ルールを確実に発火させるパラメータを設定
+   - **グラフ映えルール**: 不正パターンでは固定のuser_id命名を使い、グラフ上で視覚的に識別可能な形状（星型・チェーン）を生成すること
 
 2. **デモシナリオAPI** (`backend/main.py`)
    - `POST /api/v1/demo/scenario/{name}`
@@ -262,6 +271,7 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
    - `fetchAnalyses()` — `GET /api/v1/analyses`
    - `fetchRecentEvents()` — `GET /api/v1/events/recent`
    - `fetchUsers()` — `GET /api/v1/users`
+   - `fetchGraph()` — `GET /api/v1/graph`
    - `triggerScenario(name)` — `POST /api/v1/demo/scenario/{name}`
    - `startDemo()` / `stopDemo()` — デモ制御
    - `tryWithdraw(userId, amount)` — `POST /api/v1/withdraw`
@@ -281,13 +291,21 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
    - 危険イベント（ルール発火）は赤/オレンジでハイライト
    - 自動スクロール
 
-5. **AI監査レポート** (`frontend/src/components/AuditReport.tsx`)
+5. **資金フローグラフ** (`frontend/src/components/NetworkGraph.tsx`)
+   - ライブラリ: `react-force-graph-2d`（npm依存追加）
+   - `GET /api/v1/graph` から3秒ポーリングでデータ取得
+   - ノード色: ステータスに応じて 緑(`NORMAL`) / 黄(`RESTRICTED_WITHDRAWAL`) / 橙(`UNDER_SURVEILLANCE`) / 赤(`BANNED`)
+   - エッジ: 太さで取引額（対数スケール）、矢印で方向表示
+   - 検知演出: ステータス変更時にノードがパルスアニメーション（CSSの `@keyframes` で点滅）
+   - ダッシュボード最上部に配置（デモの視覚的主役）
+
+6. **AI監査レポート** (`frontend/src/components/AuditReport.tsx`)
    - `ArbitrationResult` をカード形式で表示
    - `risk_score` プログレスバー（色はスコアに応じて緑→黄→赤）
    - `reasoning` を目立つ形で表示（Geminiの判定根拠）
    - `evidence_event_ids` リスト
 
-6. **アカウント管理テーブル** (`frontend/src/components/AccountTable.tsx`)
+7. **アカウント管理テーブル** (`frontend/src/components/AccountTable.tsx`)
    - ステータス別のアカウント一覧
    - ステータスに応じたバッジ色（緑/黄/橙/赤）
    - 手動解除ボタン（`UNDER_SURVEILLANCE`のみ有効）
@@ -297,6 +315,7 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 - デモ制御ボタンでシナリオ注入が実行できる
 - 状態遷移がリアルタイムでUI上に反映される
 - イベントストリームとアカウント一覧がAPIデータで更新される
+- 資金フローグラフにノード・エッジが描画され、ステータス変更で色が変化する
 
 ---
 
@@ -351,18 +370,18 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 |:---:|:---|:---:|:---:|:---:|
 | 1 | PR1: 基盤+モデル | 30分 | 0:30 | - |
 | 2 | PR2: ステートマシン | 30分 | 1:00 | - |
-| 3 | PR3: L1スクリーニング | 45分 | 1:45 | PR6と並行可 |
+| 3 | PR3: L1スクリーニング + グラフAPI | 45分 | 1:45 | PR6と並行可 |
 | 4 | PR4: L2 Gemini | 60分 | 2:45 | - |
-| 5 | PR5: Mock Server | 30分 | 3:15 | PR6と並行可 |
-| 6 | PR6: ダッシュボード | 60分 | 4:15 | PR3〜5と並行可 |
-| 7 | PR7: 統合+デモ準備 | 45分 | 5:00 | - |
+| 5 | PR5: Mock Server（グラフ映え対応） | 30分 | 3:15 | PR6と並行可 |
+| 6 | PR6: ダッシュボード + 資金フローグラフ | 75分 | 4:30 | PR3〜5と並行可 |
+| 7 | PR7: 統合+デモ準備 | 30分 | 5:00 | - |
 | | **合計** | **5:00** | | |
 
 ### 時間超過時の削減優先順位
 
 5時間ジャスト計画のため、遅延時は以下の順に削る。
 
-1. ネットワークグラフの演出（主要機能ではない）
+1. グラフのパルスアニメーション演出（静的な色分けだけでも十分伝わる）
 2. UIアニメーション（KPIカウント演出）
 3. `demo/start` の連続ストリーミング（`scenario` 注入のみで審査は成立）
 4. 手動解除UI（APIのみ残し、画面実装は後回し）
