@@ -12,15 +12,10 @@ client = TestClient(main_module.app)
 
 @pytest.fixture(autouse=True)
 def reset_runtime_state(monkeypatch):
-    main_module.sm.accounts.clear()
-    main_module.sm.transition_logs.clear()
-    main_module.sm.blocked_withdrawals = 0
-    main_module.l1.user_windows.clear()
-    main_module.l1.recent_events.clear()
-    main_module.l1.l1_flag_count = 0
-    main_module.l2.analysis_results.clear()
+    main_module.reset_runtime_state()
 
     # Make smurfing scenario deterministic for stable E2E assertions.
+    mock_server.random.seed(42)
     monkeypatch.setattr(mock_server.random, "choice", lambda seq: seq[0])
     yield
 
@@ -37,14 +32,15 @@ def test_e2e_smurfing_isolation_and_l2_verdict():
     assert initial_user_resp.status_code == 200
     assert initial_user_resp.json()["state"] == AccountState.RESTRICTED_WITHDRAWAL.value
 
-    trigger_event = next(
-        event for event in reversed(main_module.l1.recent_events)
+    trigger_event, screening_result = next(
+        (event, result)
+        for event, result in reversed(main_module.l1.recent_events)
         if event.target_id == target_user
     )
     analysis_req = main_module.l1.build_analysis_request(
         target_user,
         trigger_event,
-        ["R1", "R3", "R4"],
+        screening_result.triggered_rules,
         main_module.sm.get_or_create(target_user),
     )
     asyncio.run(main_module._run_l2(analysis_req))

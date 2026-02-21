@@ -48,6 +48,8 @@ export interface GameEvent {
   event_type: string;
   actor_id: string;
   target_id: string;
+  screened?: boolean;
+  triggered_rules?: string[];
   action_details: {
     currency_amount: number;
     item_id?: string;

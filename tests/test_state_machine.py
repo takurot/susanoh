@@ -63,3 +63,15 @@ def test_transition_log_recorded(sm):
     assert len(logs) == 1
     assert logs[0].user_id == "u1"
     assert logs[0].to_state == AccountState.RESTRICTED_WITHDRAWAL
+
+
+def test_reset_clears_runtime_state(sm):
+    sm.get_or_create("u1")
+    sm.transition("u1", AccountState.RESTRICTED_WITHDRAWAL, "L1", "R1")
+    sm.blocked_withdrawals = 1
+
+    sm.reset()
+
+    assert sm.accounts == {}
+    assert sm.transition_logs == []
+    assert sm.blocked_withdrawals == 0

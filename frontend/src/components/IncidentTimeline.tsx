@@ -1,5 +1,3 @@
-import { useMemo } from 'react';
-
 import type { ArbitrationResult, GameEvent, UserInfo } from '../api';
 import { buildIncidentTimeline } from './incidentTimelineModel';
 
@@ -22,10 +20,7 @@ function stepClass(done: boolean): string {
 }
 
 export default function IncidentTimeline({ users, events, analyses }: Props) {
-  const timeline = useMemo(
-    () => buildIncidentTimeline(users, events, analyses, 10),
-    [users, events, analyses],
-  );
+  const timeline = buildIncidentTimeline(users, events, analyses, 10);
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">

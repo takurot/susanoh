@@ -68,10 +68,15 @@ def test_no_trigger_normal_trade(engine):
 
 
 def test_recent_events(engine):
-    for i in range(5):
+    engine.screen(_make_event(eid="evt_safe", amount=500, market_avg=1000, chat="よろしく"))
+    engine.screen(_make_event(eid="evt_r4", chat="Dで確認しました。振込お願いします"))
+    for i in range(3):
         engine.screen(_make_event(eid=f"evt_{i}"))
     events = engine.get_recent_events(limit=3)
     assert len(events) == 3
+    assert isinstance(events[0], dict)
+    assert "screened" in events[0]
+    assert "triggered_rules" in events[0]
 
 
 def test_build_analysis_request(engine):
@@ -80,3 +85,15 @@ def test_build_analysis_request(engine):
     req = engine.build_analysis_request("b", event, ["R1", "R4"], AccountState.RESTRICTED_WITHDRAWAL)
     assert req.user_profile.user_id == "b"
     assert req.user_profile.total_received_5min >= 2_000_000
+
+
+def test_reset_clears_windows_and_counters(engine):
+    engine.screen(_make_event(eid="evt_reset", amount=1_200_000))
+    assert engine.l1_flag_count > 0
+    assert len(engine.recent_events) == 1
+
+    engine.reset()
+
+    assert engine.l1_flag_count == 0
+    assert len(engine.recent_events) == 0
+    assert len(engine.user_windows) == 0

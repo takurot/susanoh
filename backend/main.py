@@ -33,6 +33,12 @@ mock = MockGameServer()
 streamer: DemoStreamer | None = None
 
 
+def reset_runtime_state() -> None:
+    sm.reset()
+    l1.reset()
+    l2.reset()
+
+
 async def _process_event(event: GameEventLog) -> dict:
     sm.get_or_create(event.actor_id)
     sm.get_or_create(event.target_id)

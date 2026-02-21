@@ -391,8 +391,9 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 
 ### タスク
 
-1. **インシデント整形ロジック** (`frontend/src/components/incidentTimeline.ts`)
+1. **インシデント整形ロジック** (`frontend/src/components/incidentTimelineModel.ts`)
    - `buildIncidentTimeline(users, events, analyses, limit)` を実装
+   - `GET /api/v1/events/recent` の `screened` / `triggered_rules` を優先利用し、L1判定との乖離を抑制
    - 対象抽出:
      - `NORMAL` 以外のユーザー
      - `analyses` に登場するユーザー

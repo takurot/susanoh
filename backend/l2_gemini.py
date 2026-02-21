@@ -94,6 +94,9 @@ class L2Engine:
     def __init__(self) -> None:
         self.analysis_results: list[ArbitrationResult] = []
 
+    def reset(self) -> None:
+        self.analysis_results.clear()
+
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:

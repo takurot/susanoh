@@ -6,9 +6,7 @@ from backend.models import AccountState
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    sm.accounts.clear()
-    sm.transition_logs.clear()
-    sm.blocked_withdrawals = 0
+    sm.reset()
     yield
 
 

@@ -1,7 +1,9 @@
 import type { ArbitrationResult, GameEvent, UserInfo } from '../api';
 
-const SLANG_PATTERN = /振[り込]?込|D[でにて]確認|[0-9]+[kK千万]|PayPa[ly]|銀行|口座|送金|入金確認/;
-const SUSPICIOUS_AMOUNT = 100_000;
+const SLANG_PATTERN = /振[り込]?込|D[でにて]確認|[0-9]+[kK千万]|りょ[。.]|PayPa[ly]|銀行|口座|送金|入金確認/;
+const AMOUNT_THRESHOLD = 1_000_000;
+const TX_COUNT_THRESHOLD = 10;
+const MARKET_AVG_MULTIPLIER = 100;
 
 export interface IncidentTimelineStep {
   key: 'l1' | 'withdraw' | 'l2' | 'final';
@@ -18,6 +20,11 @@ export interface IncidentTimelineItem {
   steps: IncidentTimelineStep[];
 }
 
+interface TargetWindowStats {
+  totalAmount: number;
+  txCount: number;
+}
+
 function stateRank(state: string): number {
   if (state === 'BANNED') return 3;
   if (state === 'UNDER_SURVEILLANCE') return 2;
@@ -25,9 +32,39 @@ function stateRank(state: string): number {
   return 0;
 }
 
-function isSuspiciousEvent(event: GameEvent): boolean {
-  const hasSlang = Boolean(event.context_metadata.recent_chat_log && SLANG_PATTERN.test(event.context_metadata.recent_chat_log));
-  return event.action_details.currency_amount >= SUSPICIOUS_AMOUNT || hasSlang;
+function hasSlang(chatLog?: string): boolean {
+  return Boolean(chatLog && SLANG_PATTERN.test(chatLog));
+}
+
+function buildTargetWindowStats(events: GameEvent[]): Map<string, TargetWindowStats> {
+  const statsByTarget = new Map<string, TargetWindowStats>();
+
+  // L1 is target-centric; aggregate by target_id to mirror backend semantics.
+  for (const event of events) {
+    const stats = statsByTarget.get(event.target_id) ?? { totalAmount: 0, txCount: 0 };
+    stats.totalAmount += event.action_details.currency_amount;
+    stats.txCount += 1;
+    statsByTarget.set(event.target_id, stats);
+  }
+
+  return statsByTarget;
+}
+
+function fallbackScreened(event: GameEvent, statsByTarget: Map<string, TargetWindowStats>): boolean {
+  const stats = statsByTarget.get(event.target_id) ?? { totalAmount: 0, txCount: 0 };
+  const marketAvg = event.action_details.market_avg_price ?? 0;
+  const r1 = stats.totalAmount >= AMOUNT_THRESHOLD;
+  const r2 = stats.txCount >= TX_COUNT_THRESHOLD;
+  const r3 = marketAvg > 0 && event.action_details.currency_amount >= marketAvg * MARKET_AVG_MULTIPLIER;
+  const r4 = hasSlang(event.context_metadata.recent_chat_log);
+  return r1 || r2 || r3 || r4;
+}
+
+function isSuspiciousEvent(event: GameEvent, statsByTarget: Map<string, TargetWindowStats>): boolean {
+  if (typeof event.screened === 'boolean') return event.screened;
+  if (event.triggered_rules && event.triggered_rules.length > 0) return true;
+  if (hasSlang(event.context_metadata.recent_chat_log)) return true;
+  return fallbackScreened(event, statsByTarget);
 }
 
 export function buildIncidentTimeline(
@@ -37,6 +74,7 @@ export function buildIncidentTimeline(
   limit = 10,
 ): IncidentTimelineItem[] {
   const usersById = new Map(users.map((user) => [user.user_id, user]));
+  const statsByTarget = buildTargetWindowStats(events);
 
   const latestAnalysisByUser = new Map<string, ArbitrationResult>();
   for (const analysis of analyses) {
@@ -46,7 +84,9 @@ export function buildIncidentTimeline(
   }
 
   const suspiciousEventTargets = new Set(
-    events.filter(isSuspiciousEvent).map((event) => event.target_id),
+    events
+      .filter((event) => isSuspiciousEvent(event, statsByTarget))
+      .map((event) => event.target_id),
   );
 
   const candidateIds = new Set<string>();
@@ -101,4 +141,3 @@ export function buildIncidentTimeline(
 
   return timeline.slice(0, Math.max(0, limit));
 }
-

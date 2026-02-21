@@ -57,14 +57,18 @@ class UserWindow:
 class L1Engine:
     def __init__(self) -> None:
         self.user_windows: dict[str, UserWindow] = defaultdict(UserWindow)
-        self.recent_events: deque[GameEventLog] = deque(maxlen=200)
+        self.recent_events: deque[tuple[GameEventLog, ScreeningResult]] = deque(maxlen=200)
         self.l1_flag_count: int = 0
+
+    def reset(self) -> None:
+        self.user_windows.clear()
+        self.recent_events.clear()
+        self.l1_flag_count = 0
 
     def screen(self, event: GameEventLog) -> ScreeningResult:
         target_id = event.target_id
         window = self.user_windows[target_id]
         window.add_event(event)
-        self.recent_events.append(event)
 
         triggered: list[str] = []
 
@@ -89,12 +93,14 @@ class L1Engine:
         if triggered:
             self.l1_flag_count += 1
 
-        return ScreeningResult(
+        result = ScreeningResult(
             screened=bool(triggered),
             triggered_rules=triggered,
             recommended_action=AccountState.RESTRICTED_WITHDRAWAL if triggered else None,
             needs_l2=needs_l2,
         )
+        self.recent_events.append((event, result))
+        return result
 
     @staticmethod
     def _check_slang(chat_log: str) -> bool:
@@ -115,15 +121,22 @@ class L1Engine:
             ),
         )
 
-    def get_recent_events(self, limit: int = 20) -> list[GameEventLog]:
+    def get_recent_events(self, limit: int = 20) -> list[dict]:
         events = list(self.recent_events)
-        return list(reversed(events[-limit:]))
+        return [
+            {
+                **event.model_dump(),
+                "screened": result.screened,
+                "triggered_rules": result.triggered_rules,
+            }
+            for event, result in reversed(events[-limit:])
+        ]
 
     def get_graph_data(self, accounts: dict[str, AccountState]) -> dict:
         node_ids: set[str] = set()
         link_map: dict[tuple[str, str], dict] = {}
 
-        for event in self.recent_events:
+        for event, _ in self.recent_events:
             node_ids.add(event.actor_id)
             node_ids.add(event.target_id)
             key = (event.actor_id, event.target_id)
