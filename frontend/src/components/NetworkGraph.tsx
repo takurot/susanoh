@@ -198,10 +198,10 @@ export default function NetworkGraph({ data, focusTargetId = null, focusRequestI
         stateChanged = true;
       }
       if (!prefersReducedMotion && shouldHighlightTransition(prev, node.state)) {
-        nodeHighlightUntilRef.current[node.id] = now + NODE_HIGHLIGHT_MS;
+        nodeHighlightUntilRef.current[nodeIdOf(node)] = now + NODE_HIGHLIGHT_MS;
       }
       if (!prefersReducedMotion && shouldGlowBanned(prev, node.state)) {
-        nodeBannedGlowUntilRef.current[node.id] = now + BANNED_GLOW_MS;
+        nodeBannedGlowUntilRef.current[nodeIdOf(node)] = now + BANNED_GLOW_MS;
       }
       prevStates.current[node.id] = node.state;
     }
@@ -283,7 +283,7 @@ export default function NetworkGraph({ data, focusTargetId = null, focusRequestI
     if (!focusTargetId || focusRequestId <= 0) return;
     if (focusRequestId === lastFocusRequestRef.current) return;
 
-    const targetNode = stableData.nodes.find((node) => nodeIdOf(node) == focusTargetId);
+    const targetNode = stableData.nodes.find((node) => nodeIdOf(node) === focusTargetId);
     if (!targetNode || targetNode.x == null || targetNode.y == null || !fgRef.current) return;
 
     if (focusResetTimeoutRef.current != null) {
