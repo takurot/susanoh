@@ -101,8 +101,9 @@ export interface ShowcaseResult {
   triggered_rules: string[];
   withdraw_status_code: number;
   latest_state: string;
-  latest_risk_score?: number;
-  latest_reasoning?: string;
+  latest_risk_score?: number | null;
+  latest_reasoning?: string | null;
+  analysis_error?: string | null;
 }
 
 export const fetchStats = () => get<Stats>('/stats');

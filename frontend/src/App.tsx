@@ -61,6 +61,11 @@ export default function App() {
     }
   };
 
+  const clearShowcaseResult = () => {
+    setShowcaseResult(null);
+    setShowcaseError('');
+  };
+
   const toggleStream = async () => {
     if (streaming) {
       try { await stopDemo(); } catch {
@@ -144,19 +149,31 @@ export default function App() {
       <main className="max-w-[1600px] mx-auto px-6 py-4 space-y-4">
         {(showcaseResult || showcaseError) && (
           <div className={`rounded-xl border p-3 ${showcaseError ? 'bg-red-50 border-red-200 text-red-700' : 'bg-indigo-50 border-indigo-200 text-indigo-900'}`}>
+            <div className="flex justify-end">
+              <button
+                onClick={clearShowcaseResult}
+                className="text-xs px-2 py-0.5 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                aria-label="close showcase result"
+              >
+                ×
+              </button>
+            </div>
             {showcaseError ? (
               <p className="text-sm font-medium">{showcaseError}</p>
             ) : showcaseResult && (
               <div className="space-y-1">
                 <p className="text-sm font-semibold">
                   Showcase Result: {showcaseResult.target_user} | withdraw {showcaseResult.withdraw_status_code} | state {showcaseResult.latest_state}
-                  {showcaseResult.latest_risk_score !== undefined ? ` | risk ${showcaseResult.latest_risk_score}` : ''}
+                  {showcaseResult.latest_risk_score != null ? ` | risk ${showcaseResult.latest_risk_score}` : ''}
                 </p>
                 <p className="text-xs">
                   Triggered Rules: {showcaseResult.triggered_rules.join(', ') || 'N/A'}
                 </p>
                 {showcaseResult.latest_reasoning && (
                   <p className="text-xs leading-relaxed">{showcaseResult.latest_reasoning}</p>
+                )}
+                {showcaseResult.analysis_error && (
+                  <p className="text-xs font-medium text-amber-700">Warning: {showcaseResult.analysis_error}</p>
                 )}
               </div>
             )}

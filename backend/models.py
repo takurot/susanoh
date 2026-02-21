@@ -98,6 +98,7 @@ class ShowcaseResult(BaseModel):
     latest_state: AccountState
     latest_risk_score: Optional[int] = None
     latest_reasoning: Optional[str] = None
+    analysis_error: Optional[str] = None
 
 
 class GraphNode(BaseModel):
