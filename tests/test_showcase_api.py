@@ -52,7 +52,7 @@ def test_showcase_handles_l2_failure(monkeypatch):
 
     data = resp.json()
     assert data["latest_risk_score"] is None
-    assert "L2分析失敗" in (data["latest_reasoning"] or "")
+    assert "L2 analysis failed" in (data["latest_reasoning"] or "")
     assert "forced-l2-failure" in (data["analysis_error"] or "")
 
 
@@ -78,4 +78,4 @@ def test_showcase_handles_missing_target_event(monkeypatch):
     assert data["target_user"] == "user_boss_01"
     assert data["latest_risk_score"] is None
     assert data["latest_state"] == "NORMAL"
-    assert "L2分析スキップ" in (data["analysis_error"] or "")
+    assert "L2 analysis skipped" in (data["analysis_error"] or "")

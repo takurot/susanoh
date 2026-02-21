@@ -25,9 +25,9 @@ export default function EventStream({ events }: { events: GameEvent[] }) {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 h-80 flex flex-col">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">リアルタイムイベント</h3>
+      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Real-Time Events</h3>
       <div className="flex-1 overflow-y-auto space-y-1 text-xs font-mono">
-        {events.length === 0 && <p className="text-gray-400 text-center mt-8">イベントなし</p>}
+        {events.length === 0 && <p className="text-gray-400 text-center mt-8">No events</p>}
         {events.map((e) => {
           const isSus = isSuspiciousEvent(e);
           return (

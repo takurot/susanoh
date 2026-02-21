@@ -1,11 +1,11 @@
 import type { Stats } from '../api';
 
 const cards = [
-  { key: 'total_events', label: '総処理件数', color: 'bg-blue-500' },
-  { key: 'l1_flags', label: 'L1フラグ', color: 'bg-yellow-500' },
-  { key: 'l2_analyses', label: 'L2分析', color: 'bg-orange-500' },
-  { key: 'BANNED', label: 'BAN件数', color: 'bg-red-600' },
-  { key: 'blocked_withdrawals', label: 'ブロック出金', color: 'bg-purple-600' },
+  { key: 'total_events', label: 'Total Events', color: 'bg-blue-500' },
+  { key: 'l1_flags', label: 'L1 Flags', color: 'bg-yellow-500' },
+  { key: 'l2_analyses', label: 'L2 Analyses', color: 'bg-orange-500' },
+  { key: 'BANNED', label: 'Bans', color: 'bg-red-600' },
+  { key: 'blocked_withdrawals', label: 'Blocked Withdrawals', color: 'bg-purple-600' },
 ] as const;
 
 export default function StatsCards({ stats }: { stats: Stats | null }) {

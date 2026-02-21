@@ -395,7 +395,7 @@ export default function NetworkGraph({ data, focusTargetId = null, focusRequestI
   return (
     <div ref={containerRef} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" style={{ height: 400 }}>
       <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">資金フローグラフ</h3>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Fund Flow Graph</h3>
         <div className="flex gap-3 text-xs">
           {Object.entries(STATE_COLORS).map(([k, v]) => (
             <span key={k} className="flex items-center gap-1">

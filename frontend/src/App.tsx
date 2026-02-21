@@ -59,7 +59,7 @@ export default function App() {
       refreshUsers();
     } catch {
       setShowcaseResult(null);
-      setShowcaseError('Showcase実行に失敗しました');
+      setShowcaseError('Failed to run showcase');
     } finally {
       setShowcaseLoading(false);
     }

@@ -63,7 +63,7 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
                 AccountState.RESTRICTED_WITHDRAWAL,
                 "L1_SCREENING",
                 ",".join(result.triggered_rules),
-                f"L1ルール発火: {result.triggered_rules}",
+                f"L1 rule triggered: {result.triggered_rules}",
             )
 
     if schedule_l2 and (result.needs_l2 or (
@@ -96,7 +96,7 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
                 AccountState.UNDER_SURVEILLANCE,
                 "L2_ANALYSIS",
                 "GEMINI_VERDICT",
-                f"L2中間遷移 (risk_score: {risk_score})",
+                f"L2 intermediate transition (risk_score: {risk_score})",
             )
         current = sm.get_or_create(target_id)
         if current == AccountState.UNDER_SURVEILLANCE:
@@ -105,7 +105,7 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
                 AccountState.BANNED,
                 "L2_ANALYSIS",
                 "GEMINI_VERDICT",
-                f"RMT確定 (risk_score: {risk_score})",
+                f"RMT confirmed (risk_score: {risk_score})",
             )
     elif target_state == AccountState.UNDER_SURVEILLANCE:
         if current == AccountState.RESTRICTED_WITHDRAWAL:
@@ -114,7 +114,7 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
                 AccountState.UNDER_SURVEILLANCE,
                 "L2_ANALYSIS",
                 "GEMINI_VERDICT",
-                f"要監視 (risk_score: {risk_score})",
+                f"Requires surveillance (risk_score: {risk_score})",
             )
 
 
@@ -122,10 +122,10 @@ def _withdraw_status(user_id: str) -> tuple[int, str]:
     """Return withdraw decision without mutating counters."""
     state = sm.get_or_create(user_id)
     if state == AccountState.NORMAL:
-        return 200, "出金処理完了"
+        return 200, "Withdrawal completed"
     if state == AccountState.BANNED:
-        return 403, "アカウントは凍結されています"
-    return 423, "出金が制限されています"
+        return 403, "Account is banned"
+    return 423, "Withdrawal is restricted"
 
 
 def _record_blocked_withdrawal(status_code: int) -> None:
@@ -183,10 +183,10 @@ async def withdraw(req: WithdrawRequest):
 async def release_user(user_id: str):
     current = sm.get_or_create(user_id)
     if current != AccountState.UNDER_SURVEILLANCE:
-        raise HTTPException(400, f"解除できるのはUNDER_SURVEILLANCE状態のみです（現在: {current.value}）")
-    ok = sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "手動解除")
+        raise HTTPException(400, f"Only UNDER_SURVEILLANCE accounts can be released (current: {current.value})")
+    ok = sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
     if not ok:
-        raise HTTPException(500, "遷移に失敗しました")
+        raise HTTPException(500, "State transition failed")
     return {"user_id": user_id, "state": AccountState.NORMAL.value}
 
 
@@ -279,9 +279,9 @@ async def run_showcase_smurfing():
             _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
             latest_analysis = verdict
         except Exception as exc:
-            analysis_error = f"L2分析失敗: {exc}"
+            analysis_error = f"L2 analysis failed: {exc}"
     else:
-        analysis_error = "L2分析スキップ: target_userに一致するイベントが見つかりません"
+        analysis_error = "L2 analysis skipped: no event matched target_user"
 
     status_code, _ = _withdraw_status(target_user)
     if latest_analysis is None:

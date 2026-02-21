@@ -15,9 +15,9 @@ function scoreBarColor(score: number): string {
 export default function AuditReport({ analyses }: { analyses: ArbitrationResult[] }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 h-80 flex flex-col">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">AI監査レポート</h3>
+      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">AI Audit Report</h3>
       <div className="flex-1 overflow-y-auto space-y-3">
-        {analyses.length === 0 && <p className="text-gray-400 text-center mt-8 text-sm">分析結果なし</p>}
+        {analyses.length === 0 && <p className="text-gray-400 text-center mt-8 text-sm">No analysis results</p>}
         {analyses.map((a, i) => (
           <div key={i} className="border border-gray-100 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
