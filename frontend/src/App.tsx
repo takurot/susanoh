@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   fetchStats, fetchRecentEvents, fetchAnalyses, fetchGraph, fetchUsers,
-  triggerScenario, startDemo, stopDemo,
+  triggerScenario, runShowcaseSmurfing, startDemo, stopDemo,
+  type ShowcaseResult,
 } from './api';
 import StatsCards from './components/StatsCards';
 import EventStream from './components/EventStream';
@@ -22,13 +23,16 @@ function usePolling<T>(fn: () => Promise<T>, interval: number): [T | null, () =>
 }
 
 export default function App() {
-  const [stats] = usePolling(fetchStats, 3000);
-  const [events] = usePolling(fetchRecentEvents, 3000);
-  const [analyses] = usePolling(fetchAnalyses, 3000);
-  const [graph] = usePolling(fetchGraph, 5000);
+  const [stats, refreshStats] = usePolling(fetchStats, 3000);
+  const [events, refreshEvents] = usePolling(fetchRecentEvents, 3000);
+  const [analyses, refreshAnalyses] = usePolling(fetchAnalyses, 3000);
+  const [graph, refreshGraph] = usePolling(fetchGraph, 5000);
   const [users, refreshUsers] = usePolling(fetchUsers, 5000);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState('');
+  const [showcaseLoading, setShowcaseLoading] = useState(false);
+  const [showcaseResult, setShowcaseResult] = useState<ShowcaseResult | null>(null);
+  const [showcaseError, setShowcaseError] = useState('');
 
   const runScenario = async (name: string) => {
     setLoading(name);
@@ -36,6 +40,30 @@ export default function App() {
       // Ignore transient API errors in demo control UI.
     }
     setLoading('');
+  };
+
+  const runShowcase = async () => {
+    setShowcaseLoading(true);
+    setShowcaseError('');
+    try {
+      const result = await runShowcaseSmurfing();
+      setShowcaseResult(result);
+      refreshStats();
+      refreshEvents();
+      refreshAnalyses();
+      refreshGraph();
+      refreshUsers();
+    } catch {
+      setShowcaseResult(null);
+      setShowcaseError('Showcase実行に失敗しました');
+    } finally {
+      setShowcaseLoading(false);
+    }
+  };
+
+  const clearShowcaseResult = () => {
+    setShowcaseResult(null);
+    setShowcaseError('');
   };
 
   const toggleStream = async () => {
@@ -95,6 +123,13 @@ export default function App() {
             >
               {loading === 'layering' ? '...' : 'Layering'}
             </button>
+            <button
+              onClick={runShowcase}
+              disabled={showcaseLoading || !!loading}
+              className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium border border-indigo-200 disabled:opacity-50"
+            >
+              {showcaseLoading ? 'Running...' : 'Showcase'}
+            </button>
             <div className="w-px h-6 bg-gray-200 mx-1" />
             <button
               onClick={toggleStream}
@@ -112,6 +147,38 @@ export default function App() {
 
       {/* Main */}
       <main className="max-w-[1600px] mx-auto px-6 py-4 space-y-4">
+        {(showcaseResult || showcaseError) && (
+          <div className={`rounded-xl border p-3 ${showcaseError ? 'bg-red-50 border-red-200 text-red-700' : 'bg-indigo-50 border-indigo-200 text-indigo-900'}`}>
+            <div className="flex justify-end">
+              <button
+                onClick={clearShowcaseResult}
+                className="text-xs px-2 py-0.5 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                aria-label="close showcase result"
+              >
+                ×
+              </button>
+            </div>
+            {showcaseError ? (
+              <p className="text-sm font-medium">{showcaseError}</p>
+            ) : showcaseResult && (
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  Showcase Result: {showcaseResult.target_user} | withdraw {showcaseResult.withdraw_status_code} | state {showcaseResult.latest_state}
+                  {showcaseResult.latest_risk_score != null ? ` | risk ${showcaseResult.latest_risk_score}` : ''}
+                </p>
+                <p className="text-xs">
+                  Triggered Rules: {showcaseResult.triggered_rules.join(', ') || 'N/A'}
+                </p>
+                {showcaseResult.latest_reasoning && (
+                  <p className="text-xs leading-relaxed">{showcaseResult.latest_reasoning}</p>
+                )}
+                {showcaseResult.analysis_error && (
+                  <p className="text-xs font-medium text-amber-700">Warning: {showcaseResult.analysis_error}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <StatsCards stats={stats} />
         <NetworkGraph data={graph} />
         <IncidentTimeline users={users ?? []} events={events ?? []} analyses={analyses ?? []} />
