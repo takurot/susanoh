@@ -18,6 +18,11 @@ class StateMachine:
         self.transition_logs: list[TransitionLog] = []
         self.blocked_withdrawals: int = 0
 
+    def reset(self) -> None:
+        self.accounts.clear()
+        self.transition_logs.clear()
+        self.blocked_withdrawals = 0
+
     def get_or_create(self, user_id: str) -> AccountState:
         if user_id not in self.accounts:
             self.accounts[user_id] = AccountState.NORMAL

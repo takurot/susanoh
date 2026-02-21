@@ -92,3 +92,18 @@ async def test_fallback_legitimate_low_risk():
     finally:
         if old:
             os.environ["GEMINI_API_KEY"] = old
+
+
+@pytest.mark.asyncio
+async def test_reset_clears_analysis_results():
+    old = os.environ.pop("GEMINI_API_KEY", None)
+    try:
+        engine = L2Engine()
+        await engine.analyze(_make_request())
+        assert len(engine.analysis_results) == 1
+
+        engine.reset()
+        assert engine.analysis_results == []
+    finally:
+        if old:
+            os.environ["GEMINI_API_KEY"] = old

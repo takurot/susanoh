@@ -15,6 +15,9 @@
 - [x] PR5: Mock Game Server + デモシナリオ注入
 - [x] PR6: フロントエンド ダッシュボード
 - [x] PR7: 統合テスト + デモ準備
+- [x] PR8: Incident Timeline UI（審査導線強化）
+- [ ] PR9: Demo Director（一発実演モード）
+- [ ] PR10: Graph Cinematic Mode（視覚演出強化）
 
 ## 本レビューで反映した改善点
 
@@ -36,6 +39,9 @@ PR1 (基盤+モデル)
  │    └── PR4 (L2 Gemini)
  └── PR6 (フロントエンド)
       └── PR7 (統合+デモ準備)
+           └── PR8 (Incident Timeline)
+                └── PR9 (Demo Director)
+                     └── PR10 (Graph Cinematic)
 ```
 
 ---
@@ -374,6 +380,124 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 
 ---
 
+## PR8: Incident Timeline UI ✅ 完了
+
+**所要時間**: 60分  
+**ブランチ**: `feat/pr08-incident-timeline`  
+**依存**: PR6, PR7
+
+### 目的
+審査員が「検知→隔離→裁定→最終状態」を一目で追える時系列ビューを追加し、3分デモの理解速度を上げる。
+
+### タスク
+
+1. **インシデント整形ロジック** (`frontend/src/components/incidentTimelineModel.ts`)
+   - `buildIncidentTimeline(users, events, analyses, limit)` を実装
+   - `GET /api/v1/events/recent` の `screened` / `triggered_rules` を優先利用し、L1判定との乖離を抑制
+   - 対象抽出:
+     - `NORMAL` 以外のユーザー
+     - `analyses` に登場するユーザー
+     - 高額/隠語イベントの受信ユーザー
+   - ステップ生成:
+     - `L1 Flagged`
+     - `Withdraw Restricted`
+     - `L2 Analyzed`
+     - `Final: <STATE>`
+   - 優先表示順:
+     - `BANNED` > `UNDER_SURVEILLANCE` > `RESTRICTED_WITHDRAWAL` > `NORMAL`
+     - 同順位は `risk_score` 降順
+
+2. **Incident Timeline コンポーネント** (`frontend/src/components/IncidentTimeline.tsx`)
+   - 対象アカウントごとに時系列チップを表示
+   - 現在ステータスをバッジ表示（緑/黄/橙/赤）
+   - `reasoning` がある場合はカード下部に表示
+
+3. **ダッシュボード統合** (`frontend/src/App.tsx`)
+   - `NetworkGraph` の直下に `IncidentTimeline` を配置
+   - 既存ポーリングデータ（users/events/analyses）をそのまま利用
+
+4. **テスト（TDD）**
+   - 先に `incidentTimeline` の失敗テストを追加
+   - 実装後にテストをグリーン化
+
+### 完了条件
+- Timelineで疑わしいアカウントが時系列ステップ付きで表示される
+- `BANNED` / `UNDER_SURVEILLANCE` が優先表示される
+- `reasoning` が可視化される
+- `npm run test:run` が通る
+
+---
+
+## PR9: Demo Director（一発実演モード）🟡 未着手
+
+**所要時間**: 45分  
+**ブランチ**: `feat/demo-director`  
+**依存**: PR8
+
+### 目的
+発表者の操作負荷を下げ、審査時の誤操作リスクを減らすために、主要デモ動線を1アクション化する。
+
+### タスク
+
+1. **ショーケースAPI追加** (`backend/main.py`)
+   - `POST /api/v1/demo/showcase/smurfing`
+   - 実行順:
+     - `rmt-smurfing` 注入
+     - `user_boss_01` 出金試行
+     - 判定結果/状態を収集して要約返却
+
+2. **レスポンス型追加** (`backend/models.py`)
+   - `ShowcaseResult`
+   - フィールド:
+     - `target_user`
+     - `triggered_rules`
+     - `withdraw_status_code`
+     - `latest_state`
+     - `latest_risk_score`
+     - `latest_reasoning`
+
+3. **フロント統合** (`frontend/src/api.ts`, `frontend/src/App.tsx`)
+   - `runShowcaseSmurfing()` を追加
+   - ヘッダーに `Showcase` ボタン追加
+   - 実行結果を上部バナー表示
+
+### 完了条件
+- `Showcase` 1クリックで 30〜45秒以内に主要シーケンスが再現できる
+- 実行結果がUIに要約表示される
+
+---
+
+## PR10: Graph Cinematic Mode（視覚演出強化）🟡 未着手
+
+**所要時間**: 45分  
+**ブランチ**: `feat/graph-cinematic`  
+**依存**: PR9
+
+### 目的
+視覚インパクトを強化し、創造性とデモ得点を引き上げる。
+
+### タスク
+
+1. **ノード演出** (`frontend/src/components/NetworkGraph.tsx`)
+   - `RESTRICTED_WITHDRAWAL` 以上への遷移時にハイライトリング
+   - `BANNED` で赤グロー表示
+
+2. **エッジ演出**
+   - 高額/不審エッジを一定時間太線化
+
+3. **カメラ演出**
+   - Showcase時に対象ノードへ軽いズーム/センタリング
+
+4. **アクセシビリティ**
+   - `prefers-reduced-motion` 環境では演出を抑制
+
+### 完了条件
+- 状態遷移時に視覚演出が発火する
+- 低スペック環境でも操作不能にならない
+- `prefers-reduced-motion` で過剰演出が無効化される
+
+---
+
 ## タイムライン総括
 
 | 順序 | PR | 所要時間 | 累計 | 並行可否 | ステータス |
@@ -385,7 +509,10 @@ Gemini APIを使い、L1が検知したグレーなログの文脈分析と最�
 | 5 | PR5: Mock Server（グラフ映え対応） | 30分 | 3:15 | PR6と並行可 | ✅ |
 | 6 | PR6: ダッシュボード + 資金フローグラフ | 75分 | 4:30 | PR3〜5と並行可 | ✅ |
 | 7 | PR7: 統合+デモ準備 | 30分 | 5:00 | - | ✅ |
-| | **合計** | **5:00** | | | **完了** |
+| 8 | PR8: Incident Timeline UI | 60分 | 6:00 | - | ✅ |
+| 9 | PR9: Demo Director | 45分 | 6:45 | PR10と連続推奨 | ⬜ |
+| 10 | PR10: Graph Cinematic Mode | 45分 | 7:30 | - | ⬜ |
+| | **合計** | **7:30** | | | **PR8まで完了** |
 
 ### 時間超過時の削減優先順位
 
