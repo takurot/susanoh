@@ -33,14 +33,14 @@ def _make_request(rules=None, amount=2_000_000, senders=6):
 
 @pytest.mark.asyncio
 async def test_fallback_without_api_key():
-    """APIキー未設定時はローカルフォールバックが動作する"""
+    """Local fallback should work when API key is missing."""
     old = os.environ.pop("GEMINI_API_KEY", None)
     try:
         engine = L2Engine()
         result = await engine.analyze(_make_request())
         assert result.target_id == "b"
         assert result.risk_score > 0
-        assert "フォールバック" in result.reasoning
+        assert "Local fallback" in result.reasoning
         assert result.recommended_action in (
             AccountState.UNDER_SURVEILLANCE,
             AccountState.BANNED,
@@ -52,7 +52,7 @@ async def test_fallback_without_api_key():
 
 @pytest.mark.asyncio
 async def test_fallback_stores_result():
-    """フォールバック結果がanalysis_resultsに蓄積される"""
+    """Fallback results should be stored in analysis_results."""
     old = os.environ.pop("GEMINI_API_KEY", None)
     try:
         engine = L2Engine()
@@ -65,7 +65,7 @@ async def test_fallback_stores_result():
 
 @pytest.mark.asyncio
 async def test_fallback_legitimate_low_risk():
-    """低リスク取引のフォールバック判定"""
+    """Fallback behavior for low-risk trades."""
     old = os.environ.pop("GEMINI_API_KEY", None)
     try:
         engine = L2Engine()

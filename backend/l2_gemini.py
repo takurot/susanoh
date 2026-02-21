@@ -13,29 +13,29 @@ from backend.models import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """あなたはオンラインゲーム経済圏の不正取引分析AIです。
-提供されるデータを分析し、以下のJSON形式で裁定結果を返してください。
+SYSTEM_PROMPT = """You are an anti-fraud analysis AI for an online game economy.
+Analyze the provided data and return an arbitration result in the following JSON format.
 
-分析観点:
-1. 取引パターン: 短時間の大量取引、集約パターン、チェーン送金
-2. チャットログ: RMT隠語（「振込」「D確認」「3k」等）
-3. アカウントプロファイル: レベル、アカウント年齢、取引頻度
+Analysis dimensions:
+1. Transaction patterns: bursty high-volume activity, aggregation patterns, chain transfers
+2. Chat logs: RMT slang (e.g., transfer/confirmation/3k)
+3. Account profile: level, account age, transaction frequency
 
-判定基準:
-- risk_score 0-30: NORMAL（正常取引）
-- risk_score 31-70: UNDER_SURVEILLANCE（要監視）
-- risk_score 71-100: BANNED（不正確定）
+Decision criteria:
+- risk_score 0-30: NORMAL (legitimate)
+- risk_score 31-70: UNDER_SURVEILLANCE (needs monitoring)
+- risk_score 71-100: BANNED (confirmed fraud)
 
-fraud_type: RMT_SMURFING, RMT_DIRECT, MONEY_LAUNDERING, LEGITIMATE のいずれか
+fraud_type must be one of: RMT_SMURFING, RMT_DIRECT, MONEY_LAUNDERING, LEGITIMATE
 
-出力は必ず以下のJSONスキーマに従ってください:
+Output must strictly follow this JSON schema:
 {
   "target_id": "string",
   "is_fraud": boolean,
   "risk_score": integer (0-100),
   "fraud_type": "string",
   "recommended_action": "string (NORMAL|UNDER_SURVEILLANCE|BANNED)",
-  "reasoning": "string (日本語で判定根拠を説明)",
+  "reasoning": "string (explain your decision in English)",
   "evidence_event_ids": ["string"],
   "confidence": float (0.0-1.0)
 }"""
@@ -84,7 +84,12 @@ def _local_fallback(request: AnalysisRequest, reason: str) -> ArbitrationResult:
         risk_score=score,
         fraud_type=fraud_type,
         recommended_action=action,
-        reasoning=f"[ローカルフォールバック: {reason}] ルール{rules}が発火。累計額{profile.total_received_5min}G、取引{profile.transaction_count_5min}回、送信者{profile.unique_senders_5min}人。",
+        reasoning=(
+            f"[Local fallback: {reason}] Rules {rules} were triggered. "
+            f"5-minute total={profile.total_received_5min}G, "
+            f"transactions={profile.transaction_count_5min}, "
+            f"unique_senders={profile.unique_senders_5min}."
+        ),
         evidence_event_ids=[request.trigger_event.event_id],
         confidence=0.6,
     )
@@ -100,7 +105,7 @@ class L2Engine:
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
-            result = _local_fallback(request, "GEMINI_API_KEY未設定")
+            result = _local_fallback(request, "GEMINI_API_KEY is not set")
             self.analysis_results.append(result)
             return result
 
@@ -110,7 +115,7 @@ class L2Engine:
             return result
         except Exception as e:
             logger.warning("Gemini API error: %s — falling back", e)
-            result = _local_fallback(request, f"API障害: {e}")
+            result = _local_fallback(request, f"API error: {e}")
             self.analysis_results.append(result)
             return result
 
@@ -139,7 +144,7 @@ class L2Engine:
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            return _local_fallback(request, "JSONパース失敗")
+            return _local_fallback(request, "JSON parse failed")
 
         action_str = data.get("recommended_action", "UNDER_SURVEILLANCE")
         try:
@@ -159,7 +164,7 @@ class L2Engine:
             risk_score=max(0, min(100, data.get("risk_score", 50))),
             fraud_type=fraud_type,
             recommended_action=action,
-            reasoning=data.get("reasoning", "分析完了"),
+            reasoning=data.get("reasoning", "Analysis completed"),
             evidence_event_ids=data.get("evidence_event_ids", [request.trigger_event.event_id]),
             confidence=max(0.0, min(1.0, data.get("confidence", 0.8))),
         )
@@ -170,22 +175,22 @@ class L2Engine:
         trigger = request.trigger_event
 
         lines = [
-            "## 分析対象",
-            f"- ユーザーID: {profile.user_id}",
-            f"- 現在の状態: {profile.current_state.value}",
-            f"- 5分間累計受取額: {profile.total_received_5min}G",
-            f"- 5分間取引回数: {profile.transaction_count_5min}",
-            f"- 5分間ユニーク送信者数: {profile.unique_senders_5min}",
+            "## Analysis Target",
+            f"- User ID: {profile.user_id}",
+            f"- Current state: {profile.current_state.value}",
+            f"- 5-minute total received: {profile.total_received_5min}G",
+            f"- 5-minute transaction count: {profile.transaction_count_5min}",
+            f"- 5-minute unique senders: {profile.unique_senders_5min}",
             "",
-            "## トリガーイベント",
-            f"- イベントID: {trigger.event_id}",
-            f"- 送信者: {trigger.actor_id} → 受信者: {trigger.target_id}",
-            f"- 金額: {trigger.action_details.currency_amount}G",
-            f"- チャット: {trigger.context_metadata.recent_chat_log or '(なし)'}",
+            "## Trigger Event",
+            f"- Event ID: {trigger.event_id}",
+            f"- Sender: {trigger.actor_id} -> Receiver: {trigger.target_id}",
+            f"- Amount: {trigger.action_details.currency_amount}G",
+            f"- Chat: {trigger.context_metadata.recent_chat_log or '(none)'}",
             "",
-            f"## 発火ルール: {', '.join(request.triggered_rules) or 'なし'}",
+            f"## Triggered Rules: {', '.join(request.triggered_rules) or 'none'}",
             "",
-            "## 関連イベント一覧",
+            "## Related Events",
         ]
         for evt in request.related_events[-10:]:
             lines.append(

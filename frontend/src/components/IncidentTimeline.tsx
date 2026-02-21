@@ -30,7 +30,7 @@ export default function IncidentTimeline({ users, events, analyses }: Props) {
       </div>
 
       {timeline.length === 0 ? (
-        <p className="text-sm text-gray-400 py-6 text-center">インシデント対象なし</p>
+        <p className="text-sm text-gray-400 py-6 text-center">No incident candidates</p>
       ) : (
         <div className="space-y-3 max-h-72 overflow-y-auto">
           {timeline.map((incident) => (

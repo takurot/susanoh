@@ -17,7 +17,7 @@ export default function AccountTable({ users, onRefresh }: { users: UserInfo[]; 
     if (res._status) {
       setMsg(`${uid}: ${res.detail} (${res._status})`);
     } else {
-      setMsg(`${uid}: 出金成功`);
+      setMsg(`${uid}: Withdrawal successful`);
     }
     setTimeout(() => setMsg(''), 3000);
   };
@@ -25,17 +25,17 @@ export default function AccountTable({ users, onRefresh }: { users: UserInfo[]; 
   const handleRelease = async (uid: string) => {
     try {
       await releaseUser(uid);
-      setMsg(`${uid}: 監視解除`);
+      setMsg(`${uid}: Released from surveillance`);
       onRefresh();
     } catch {
-      setMsg(`${uid}: 解除失敗`);
+      setMsg(`${uid}: Release failed`);
     }
     setTimeout(() => setMsg(''), 3000);
   };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">アカウント管理</h3>
+      <h3 className="text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Account Management</h3>
       {msg && (
         <div className="mb-2 text-xs px-3 py-1.5 rounded bg-blue-50 text-blue-700 border border-blue-200">{msg}</div>
       )}
@@ -50,7 +50,7 @@ export default function AccountTable({ users, onRefresh }: { users: UserInfo[]; 
           </thead>
           <tbody>
             {users.length === 0 && (
-              <tr><td colSpan={3} className="text-center text-gray-400 py-6">ユーザーなし</td></tr>
+              <tr><td colSpan={3} className="text-center text-gray-400 py-6">No users</td></tr>
             )}
             {users.map((u) => (
               <tr key={u.user_id} className="border-b border-gray-50 hover:bg-gray-50">
@@ -65,14 +65,14 @@ export default function AccountTable({ users, onRefresh }: { users: UserInfo[]; 
                     onClick={() => handleWithdraw(u.user_id)}
                     className="px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs"
                   >
-                    出金テスト
+                    Test Withdrawal
                   </button>
                   {u.state === 'UNDER_SURVEILLANCE' && (
                     <button
                       onClick={() => handleRelease(u.user_id)}
                       className="px-2 py-0.5 rounded bg-green-100 hover:bg-green-200 text-green-700 text-xs"
                     >
-                      解除
+                      Release
                     </button>
                   )}
                 </td>
