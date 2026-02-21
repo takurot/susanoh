@@ -8,6 +8,7 @@ import EventStream from './components/EventStream';
 import NetworkGraph from './components/NetworkGraph';
 import AuditReport from './components/AuditReport';
 import AccountTable from './components/AccountTable';
+import IncidentTimeline from './components/IncidentTimeline';
 
 function usePolling<T>(fn: () => Promise<T>, interval: number): [T | null, () => void] {
   const [data, setData] = useState<T | null>(null);
@@ -113,6 +114,7 @@ export default function App() {
       <main className="max-w-[1600px] mx-auto px-6 py-4 space-y-4">
         <StatsCards stats={stats} />
         <NetworkGraph data={graph} />
+        <IncidentTimeline users={users ?? []} events={events ?? []} analyses={analyses ?? []} />
         <div className="grid grid-cols-2 gap-4">
           <EventStream events={events ?? []} />
           <AuditReport analyses={analyses ?? []} />
