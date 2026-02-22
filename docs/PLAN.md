@@ -16,9 +16,10 @@
   - `User`, `EventLog`, `AnalysisResult`, `AuditLog` テーブルのスキーマ設計 (SQLAlchemy / Alembic)
   - 既存のインメモリデータのDB移行ロジック
   - Status: プロトタイプ実装済み（`DATABASE_URL` 設定時にSQLAlchemyでスキーマ作成 + スナップショット永続化、2026-02-22）
-- [ ] **State Store**: Redisの導入
-  - ステートマシン状態のRedis管理
-  - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用)
+- [x] **State Store**: Redisの導入
+  - ステートマシン状態のRedis管理 (実装済み, 2026-02-22)
+  - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用, 2026-02-22)
+  - Async/Await化による分散対応への基盤構築 (2026-02-22)
 
 ### 1.2 認証・認可基盤
 - [x] **Service Authentication**: ゲームサーバー向けAPI Key認証 (`X-API-KEY`) の実装と管理機能（Middleware実装）

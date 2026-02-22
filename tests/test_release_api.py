@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
 
 from backend.main import app, sm
@@ -7,7 +8,7 @@ from backend.models import AccountState
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    sm.reset()
+    asyncio.run(sm.reset())
     yield
 
 

@@ -4,5 +4,6 @@ pydantic
 google-genai
 httpx
 sqlalchemy
+redis[hiredis]
 pytest
 pytest-asyncio

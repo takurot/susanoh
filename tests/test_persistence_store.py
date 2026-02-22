@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from backend.l1_screening import L1Engine
@@ -36,23 +37,23 @@ def test_snapshot_persists_runtime_state(tmp_path):
         action_details=ActionDetails(currency_amount=2_000_000, market_avg_price=100),
         context_metadata=ContextMetadata(actor_level=2, account_age_days=1, recent_chat_log="Dで確認"),
     )
-    screening = l1.screen(event)
-    sm.get_or_create(event.actor_id)
-    sm.get_or_create(event.target_id)
-    sm.transition(
+    screening = asyncio.run(l1.screen(event))
+    asyncio.run(sm.get_or_create(event.actor_id))
+    asyncio.run(sm.get_or_create(event.target_id))
+    asyncio.run(sm.transition(
         event.target_id,
         AccountState.RESTRICTED_WITHDRAWAL,
         "L1_SCREENING",
         ",".join(screening.triggered_rules),
         "L1 rule triggered",
-    )
+    ))
 
-    analysis_req = l1.build_analysis_request(
+    analysis_req = asyncio.run(l1.build_analysis_request(
         event.target_id,
         event,
         screening.triggered_rules,
-        sm.get_or_create(event.target_id),
-    )
+        asyncio.run(sm.get_or_create(event.target_id)),
+    ))
     l2_results = [_local_fallback(analysis_req, "test-fallback")]
 
     store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=l2_results)
@@ -84,9 +85,9 @@ def test_clear_all_removes_rows(tmp_path):
         action_details=ActionDetails(currency_amount=100),
         context_metadata=ContextMetadata(),
     )
-    l1.screen(event)
-    sm.get_or_create(event.actor_id)
-    sm.get_or_create(event.target_id)
+    asyncio.run(l1.screen(event))
+    asyncio.run(sm.get_or_create(event.actor_id))
+    asyncio.run(sm.get_or_create(event.target_id))
 
     store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=[])
     store.clear_all()
@@ -112,9 +113,9 @@ def test_snapshot_appends_to_logs_instead_of_clearing(tmp_path):
         target_id="user_2",
         action_details=ActionDetails(currency_amount=100),
     )
-    l1.screen(e1)
-    sm.get_or_create(e1.actor_id)
-    sm.get_or_create(e1.target_id)
+    asyncio.run(l1.screen(e1))
+    asyncio.run(sm.get_or_create(e1.actor_id))
+    asyncio.run(sm.get_or_create(e1.target_id))
     store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=[])
 
     with store.session() as session:
@@ -127,8 +128,8 @@ def test_snapshot_appends_to_logs_instead_of_clearing(tmp_path):
         target_id="user_3",
         action_details=ActionDetails(currency_amount=200),
     )
-    l1.screen(e2)
-    sm.get_or_create(e2.target_id)
+    asyncio.run(l1.screen(e2))
+    asyncio.run(sm.get_or_create(e2.target_id))
     store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=[])
 
     with store.session() as session:
@@ -138,8 +139,8 @@ def test_snapshot_appends_to_logs_instead_of_clearing(tmp_path):
         assert session.query(UserRecord).count() == 3
 
     # If we reset runtime state but DON'T clear DB, snapshot should preserve DB rows
-    sm.reset()
-    l1.reset()
+    asyncio.run(sm.reset())
+    asyncio.run(l1.reset())
     
     e3 = GameEventLog(
         event_id="evt_append_003",
@@ -147,9 +148,9 @@ def test_snapshot_appends_to_logs_instead_of_clearing(tmp_path):
         target_id="user_5",
         action_details=ActionDetails(currency_amount=300),
     )
-    l1.screen(e3)
-    sm.get_or_create(e3.actor_id)
-    sm.get_or_create(e3.target_id)
+    asyncio.run(l1.screen(e3))
+    asyncio.run(sm.get_or_create(e3.actor_id))
+    asyncio.run(sm.get_or_create(e3.target_id))
     store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=[])
 
     with store.session() as session:

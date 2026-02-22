@@ -12,7 +12,7 @@ client = TestClient(main_module.app)
 
 @pytest.fixture(autouse=True)
 def reset_runtime_state(monkeypatch):
-    main_module.reset_runtime_state()
+    asyncio.run(main_module.reset_runtime_state())
 
     # Make smurfing scenario deterministic for stable E2E assertions.
     mock_server.random.seed(42)
@@ -44,12 +44,12 @@ def test_e2e_smurfing_isolation_and_l2_verdict():
         for event, result in reversed(main_module.l1.recent_events)
         if event.target_id == target_user
     )
-    analysis_req = main_module.l1.build_analysis_request(
+    analysis_req = asyncio.run(main_module.l1.build_analysis_request(
         target_user,
         trigger_event,
         screening_result.triggered_rules,
-        main_module.sm.get_or_create(target_user),
-    )
+        asyncio.run(main_module.sm.get_or_create(target_user)),
+    ))
     asyncio.run(main_module._run_l2(analysis_req))
 
     analyses_resp = client.get("/api/v1/analyses")

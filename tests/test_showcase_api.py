@@ -1,4 +1,5 @@
 import random
+import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ client = TestClient(main_module.app)
 
 @pytest.fixture(autouse=True)
 def reset_runtime_state(monkeypatch):
-    main_module.reset_runtime_state()
+    asyncio.run(main_module.reset_runtime_state())
     random.seed(42)
     monkeypatch.setattr(mock_server.random, "choice", lambda seq: seq[0])
     yield

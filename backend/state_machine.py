@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Optional
 
 from backend.models import AccountState, TransitionLog
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 ALLOWED_TRANSITIONS: dict[AccountState, set[AccountState]] = {
     AccountState.NORMAL: {AccountState.RESTRICTED_WITHDRAWAL},
@@ -13,22 +18,49 @@ ALLOWED_TRANSITIONS: dict[AccountState, set[AccountState]] = {
 
 
 class StateMachine:
-    def __init__(self) -> None:
-        self.accounts: dict[str, AccountState] = {}
-        self.transition_logs: list[TransitionLog] = []
-        self.blocked_withdrawals: int = 0
+    def __init__(self, redis_client: Optional[Redis] = None) -> None:
+        self.redis = redis_client
+        self._accounts: dict[str, AccountState] = {}
+        self._transition_logs: list[TransitionLog] = []
+        self._blocked_withdrawals: int = 0
 
-    def reset(self) -> None:
-        self.accounts.clear()
-        self.transition_logs.clear()
-        self.blocked_withdrawals = 0
+    @property
+    def accounts(self) -> dict[str, AccountState]:
+        """Warning: This might be expensive/partial if using Redis."""
+        return self._accounts
 
-    def get_or_create(self, user_id: str) -> AccountState:
-        if user_id not in self.accounts:
-            self.accounts[user_id] = AccountState.NORMAL
-        return self.accounts[user_id]
+    @property
+    def transition_logs(self) -> list[TransitionLog]:
+        return self._transition_logs
 
-    def transition(
+    @property
+    def blocked_withdrawals(self) -> int:
+        return self._blocked_withdrawals
+
+    @blocked_withdrawals.setter
+    def blocked_withdrawals(self, value: int) -> None:
+        self._blocked_withdrawals = value
+
+    async def reset(self) -> None:
+        self._accounts.clear()
+        self._transition_logs.clear()
+        self._blocked_withdrawals = 0
+        if self.redis:
+            await self.redis.delete("susanoh:accounts", "susanoh:transitions", "susanoh:blocked_withdrawals")
+
+    async def get_or_create(self, user_id: str) -> AccountState:
+        if self.redis:
+            val = await self.redis.hget("susanoh:accounts", user_id)
+            if val:
+                return AccountState(val)
+            await self.redis.hset("susanoh:accounts", user_id, AccountState.NORMAL.value)
+            return AccountState.NORMAL
+
+        if user_id not in self._accounts:
+            self._accounts[user_id] = AccountState.NORMAL
+        return self._accounts[user_id]
+
+    async def transition(
         self,
         user_id: str,
         new_state: AccountState,
@@ -36,7 +68,7 @@ class StateMachine:
         rule: str,
         evidence_summary: str = "",
     ) -> bool:
-        current = self.get_or_create(user_id)
+        current = await self.get_or_create(user_id)
         if new_state not in ALLOWED_TRANSITIONS.get(current, set()):
             return False
 
@@ -49,29 +81,64 @@ class StateMachine:
             timestamp=datetime.now(UTC).isoformat() + "Z",
             evidence_summary=evidence_summary,
         )
-        self.accounts[user_id] = new_state
-        self.transition_logs.append(log)
+
+        if self.redis:
+            await self.redis.hset("susanoh:accounts", user_id, new_state.value)
+            await self.redis.rpush("susanoh:transitions", log.model_dump_json())
+        else:
+            self._accounts[user_id] = new_state
+            self._transition_logs.append(log)
         return True
 
-    def can_withdraw(self, user_id: str) -> bool:
-        return self.get_or_create(user_id) == AccountState.NORMAL
+    async def can_withdraw(self, user_id: str) -> bool:
+        return await self.get_or_create(user_id) == AccountState.NORMAL
 
-    def get_stats(self) -> dict:
+    async def get_stats(self) -> dict:
+        if self.redis:
+            all_accounts = await self.redis.hgetall("susanoh:accounts")
+            stats = {s.value: 0 for s in AccountState}
+            for state_val in all_accounts.values():
+                stats[state_val] += 1
+            stats["total_accounts"] = len(all_accounts)
+            stats["total_transitions"] = await self.redis.llen("susanoh:transitions")
+            stats["blocked_withdrawals"] = int(await self.redis.get("susanoh:blocked_withdrawals") or 0)
+            return stats
+
         stats = {s.value: 0 for s in AccountState}
-        for state in self.accounts.values():
+        for state in self._accounts.values():
             stats[state.value] += 1
-        stats["total_accounts"] = len(self.accounts)
-        stats["total_transitions"] = len(self.transition_logs)
-        stats["blocked_withdrawals"] = self.blocked_withdrawals
+        stats["total_accounts"] = len(self._accounts)
+        stats["total_transitions"] = len(self._transition_logs)
+        stats["blocked_withdrawals"] = self._blocked_withdrawals
         return stats
 
-    def get_transitions(self, limit: int = 50) -> list[TransitionLog]:
-        return list(reversed(self.transition_logs[-limit:]))
+    async def get_transitions(self, limit: int = 50) -> list[TransitionLog]:
+        if self.redis:
+            raw_logs = await self.redis.lrange("susanoh:transitions", -limit, -1)
+            logs = [TransitionLog.model_validate_json(l) for l in raw_logs]
+            return list(reversed(logs))
 
-    def get_all_users(self, state_filter: AccountState | None = None) -> list[dict]:
+        return list(reversed(self._transition_logs[-limit:]))
+
+    async def get_all_users(self, state_filter: AccountState | None = None) -> list[dict]:
+        if self.redis:
+            all_accounts = await self.redis.hgetall("susanoh:accounts")
+            users = []
+            for uid, st_val in all_accounts.items():
+                if state_filter and st_val != state_filter.value:
+                    continue
+                users.append({"user_id": uid, "state": st_val})
+            return users
+
         users = []
-        for uid, st in self.accounts.items():
+        for uid, st in self._accounts.items():
             if state_filter and st != state_filter:
                 continue
             users.append({"user_id": uid, "state": st.value})
         return users
+
+    async def increment_blocked_withdrawals(self) -> None:
+        if self.redis:
+            await self.redis.incr("susanoh:blocked_withdrawals")
+        else:
+            self._blocked_withdrawals += 1
