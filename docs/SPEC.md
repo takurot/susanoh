@@ -29,7 +29,7 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
                                         +-> [Persistence Layer] <-> [PostgreSQL]
 ```
 
-> **Note**: 現行プロトタイプは単一プロセス・インメモリ構成で動作しており、Rust L1/Redis/PostgreSQL/Celeryは未実装です。
+> **Note**: 現行プロトタイプは単一プロセス構成で動作しており、Rust L1/Redis/Celeryは未実装です。PostgreSQLは `DATABASE_URL` 設定時のスナップショット永続化のみ実装済みです。
 
 ### 1.2 コンポーネント詳細
 
@@ -40,7 +40,7 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
 | **State Store** | Redis (Target) | ユーザー状態（ステートマシン）、直近イベントウィンドウの高速管理 |
 | **L2 Analysis Worker** | Python (Celery/Arq) | L1でフラグが立ったイベントの非同期詳細分析、LLM呼び出し |
 | **AI Provider** | Google Gemini API | 自然言語処理によるチャット解析、複雑な取引パターンの文脈判定 |
-| **Primary Database** | PostgreSQL (Target) | ユーザープロファイル、監査ログ、分析結果の永続化 |
+| **Primary Database** | PostgreSQL (Target) / SQLAlchemy Snapshot (Current Optional) | ユーザープロファイル、監査ログ、分析結果の永続化 |
 | **Dashboard (Frontend)** | React, TypeScript | リアルタイムモニタリング、資金フロー可視化、手動監査インターフェース |
 
 ---

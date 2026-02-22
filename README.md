@@ -51,7 +51,8 @@ graph TD
 ### Current Implementation (Prototype)
 
 - **Backend**: FastAPI (Single Process)
-- **State Store**: In-Memory Python Dicts (No Redis/DB required)
+- **State Store**: In-Memory Python Dicts (Redis未導入)
+- **Persistence**: `DATABASE_URL` 設定時にSQLAlchemy経由でスナップショット永続化を実行
 - **AI Engine**: Google Gemini API (Direct Call)
 - **Frontend**: React, TypeScript, Vite
 
@@ -85,6 +86,8 @@ export GEMINI_API_KEY=<your_api_key>
 export GEMINI_MODEL=gemini-2.0-flash
 # (Optional) API Key認証を有効化する場合（カンマ区切りで複数指定可）
 export SUSANOH_API_KEYS=dev-key
+# (Optional) DB永続化を有効化する場合
+export DATABASE_URL=postgresql://user:pass@localhost:5432/susanoh
 
 # サーバー起動 (開発モード)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
@@ -144,7 +147,9 @@ curl -H "X-API-KEY: dev-key" http://localhost:8000/api/v1/stats
 - [x] **Prototype**: L1 ルールエンジン & ステートマシン (In-Memory)
 - [x] **Prototype**: L2 Gemini 分析統合
 - [x] **Prototype**: リアルタイムダッシュボード
-- [ ] **Phase 1**: PostgreSQL 永続化 & Redis 導入
+- [~] **Phase 1**: PostgreSQL 永続化 & Redis 導入
+  - PostgreSQLスナップショット永続化（SQLAlchemy）: 実装済み
+  - Redis state store: 未実装
 - [~] **Phase 1**: 認証・認可基盤 (API Key / JWT)
   - Service API Key (`X-API-KEY` middleware): 実装済み
   - JWT / RBAC: 未実装
