@@ -22,20 +22,21 @@ Susanohは、以下のコンポーネントで構成される分散システム�
 ```text
 Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
                                         |
-                                        +-> [L1 Screening Engine] <-> [Redis (State/Cache)]
+                                        +-> [L1 Gateway (Rust, Target)] <-> [Redis (State/Cache)]
                                         |
                                         +-> [Message Queue (Redis)] -> [L2 Analysis Worker (Celery)] <-> [Gemini API]
                                         |
                                         +-> [Persistence Layer] <-> [PostgreSQL]
 ```
 
-> **Note**: 現行プロトタイプは単一プロセス・インメモリ構成で動作しており、Redis/PostgreSQL/Celeryは未実装です。
+> **Note**: 現行プロトタイプは単一プロセス・インメモリ構成で動作しており、Rust L1/Redis/PostgreSQL/Celeryは未実装です。
 
 ### 1.2 コンポーネント詳細
 
 | コンポーネント | 技術スタック | 役割 |
 |---|---|---|
-| **API Gateway / L1 Engine** | Python (FastAPI) | イベント受信、入力検証、高速ルール判定、即時レスポンス返却 |
+| **API Gateway** | Python (FastAPI) | イベント受信、入力検証、認証、下流サービスへのルーティング |
+| **L1 Screening Engine** | Rust (Target) / Python (Current) | ルールベース高速判定、`ScreeningResult` 生成 |
 | **State Store** | Redis (Target) | ユーザー状態（ステートマシン）、直近イベントウィンドウの高速管理 |
 | **L2 Analysis Worker** | Python (Celery/Arq) | L1でフラグが立ったイベントの非同期詳細分析、LLM呼び出し |
 | **AI Provider** | Google Gemini API | 自然言語処理によるチャット解析、複雑な取引パターンの文脈判定 |
@@ -52,6 +53,7 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
 - **機能**:
   - ゲームサーバーからのイベント（取引、チャット、ログイン等）を受信。
   - Redis上のスライディングウィンドウ（デフォルト5分）を用いて、閾値ベースのルール判定（L1）を実行。
+  - L1は `python` / `rust` の実行モードを切替可能とし、同一API契約で動作すること。
   - **判定レイテンシ**: 50ms以内（99%タイル）
 
 ### 2.2 状態管理（ステートマシン）
