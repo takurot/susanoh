@@ -6,7 +6,7 @@ from backend.models import AccountState, TransitionLog
 
 ALLOWED_TRANSITIONS: dict[AccountState, set[AccountState]] = {
     AccountState.NORMAL: {AccountState.RESTRICTED_WITHDRAWAL},
-    AccountState.RESTRICTED_WITHDRAWAL: {AccountState.UNDER_SURVEILLANCE},
+    AccountState.RESTRICTED_WITHDRAWAL: {AccountState.UNDER_SURVEILLANCE, AccountState.NORMAL},
     AccountState.UNDER_SURVEILLANCE: {AccountState.BANNED, AccountState.NORMAL},
     AccountState.BANNED: set(),
 }

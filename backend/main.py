@@ -116,6 +116,15 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
                 "GEMINI_VERDICT",
                 f"Requires surveillance (risk_score: {risk_score})",
             )
+    elif target_state == AccountState.NORMAL:
+        if current in (AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE):
+            sm.transition(
+                target_id,
+                AccountState.NORMAL,
+                "L2_ANALYSIS",
+                "GEMINI_VERDICT",
+                f"Low-risk auto recovery (risk_score: {risk_score})",
+            )
 
 
 def _withdraw_status(user_id: str) -> tuple[int, str]:

@@ -69,7 +69,6 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
   - L1検知 → `RESTRICTED_WITHDRAWAL` へ即時遷移
   - L2分析結果（黒/High Risk） → `BANNED` へ遷移
   - L2分析結果（白/Low Risk） → **自動的に `NORMAL` へ復帰**
-    - *Note: 現行プロトタイプでは自動復帰は未実装であり、手動解除が必要です。*
   - 手動解除 → `NORMAL` へ復帰
 
 ### 2.3 L2 詳細分析（非同期）

@@ -23,7 +23,7 @@ Susanoh は、オンラインゲーム経済圏におけるRMT（リアルマネ
 
 - **🍯 ハニーポット制御 (Dynamic State Machine)**
   疑わしいアカウントに対し、即座にBANするのではなく「出金のみをブロック」するステートへ遷移。業者の活動を泳がせつつ、経済圏からの資産流出を確実に阻止します。
-  *(Current: 手動解除が必要な一部フローあり)*
+  *(Current: L2 Low Risk verdict時の自動復旧に対応済み)*
 
 - **📊 統合ダッシュボード (Observability)**
   資金フローの可視化グラフ、リアルタイム監査ログ、手動介入インターフェースを備えた管理画面を提供します。
@@ -139,7 +139,7 @@ npm run dev
 - [x] **Prototype**: リアルタイムダッシュボード
 - [ ] **Phase 1**: PostgreSQL 永続化 & Redis 導入
 - [ ] **Phase 1**: 認証・認可基盤 (API Key / JWT)
-- [ ] **Phase 1**: 自動ステート復旧ロジック (L2 White Verdict)
+- [x] **Phase 1**: 自動ステート復旧ロジック (L2 White Verdict)
 - [ ] **Phase 2**: CI/CD & Docker 化
 
 ---
