@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Optional
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -26,9 +28,18 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup logic can go here if needed
+    # Setup arq pool
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+    except Exception as e:
+        logger.warning(f"Failed to create arq pool (continuing without async worker): {e}")
+        app.state.arq_pool = None
+    
     yield
     # Shutdown logic
+    if app.state.arq_pool:
+        await app.state.arq_pool.close()
     await redis_client.close()
 
 app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
@@ -125,7 +136,10 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
         analysis_req = await l1.build_analysis_request(
             event.target_id, event, result.triggered_rules, current_state
         )
-        asyncio.create_task(_run_l2(analysis_req))
+        if hasattr(app.state, "arq_pool") and app.state.arq_pool:
+            await app.state.arq_pool.enqueue_job("analyze_l2_task", analysis_req)
+        else:
+            asyncio.create_task(_run_l2(analysis_req))
 
     _persist_runtime_snapshot()
     return {"screened": result.screened, "triggered_rules": result.triggered_rules}

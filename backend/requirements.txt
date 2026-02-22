@@ -5,6 +5,7 @@ google-genai
 httpx
 sqlalchemy
 redis[hiredis]
+arq
 fakeredis
 pytest
 pytest-asyncio
