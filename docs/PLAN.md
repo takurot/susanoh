@@ -38,6 +38,21 @@
 
 ---
 
+## Phase 1.5: Testing & Quality Assurance (テスト・品質保証の強化)
+
+プロダクション移行に向け、テストの自動化とカバレッジの向上を図る。
+
+### 1.5.1 テスト基盤の整備
+- [ ] **Coverage Analysis**: `pytest-cov` を導入し、バックエンドのカバレッジを可視化。
+- [ ] **Frontend Testing**: Playwright を導入し、ダッシュボードの主要導線の E2E テストを自動化。
+
+### 1.5.2 信頼性の検証
+- [ ] **Concurrency Testing**: 大量イベント同時受信時、およびステート遷移時の Race Condition 検証。
+- [ ] **Fault Injection**: Redis/Gemini API などの外部依存先が「スローレスポンス」や「瞬断」した際の耐障害性テストの拡充。
+- [ ] **Live API Verification**: ステージング環境における Gemini API との定期的疎通確認テスト。
+
+---
+
 ## Phase 2: Infrastructure & DevOps (運用基盤)
 
 安定したデプロイと監視体制を構築し、SLA 99.9%を担保する準備を整える。
