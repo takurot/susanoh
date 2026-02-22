@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Optional
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -26,12 +28,22 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup logic can go here if needed
+    # Setup arq pool
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+    except Exception as e:
+        logger.warning(f"Failed to create arq pool (continuing without async worker): {e}")
+        app.state.arq_pool = None
+    
     yield
     # Shutdown logic
+    if app.state.arq_pool:
+        await app.state.arq_pool.close()
     await redis_client.close()
 
 app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
+app.state.arq_pool = None
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -125,7 +137,10 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
         analysis_req = await l1.build_analysis_request(
             event.target_id, event, result.triggered_rules, current_state
         )
-        asyncio.create_task(_run_l2(analysis_req))
+        if hasattr(app.state, "arq_pool") and app.state.arq_pool:
+            await app.state.arq_pool.enqueue_job("analyze_l2_task", analysis_req)
+        else:
+            asyncio.create_task(_run_l2(analysis_req))
 
     _persist_runtime_snapshot()
     return {"screened": result.screened, "triggered_rules": result.triggered_rules}
@@ -134,50 +149,10 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
 async def _run_l2(analysis_req) -> None:
     try:
         verdict = await l2.analyze(analysis_req)
-        await _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+        await sm.apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
         _persist_runtime_snapshot()
-    except Exception:
-        pass
-
-
-async def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: int) -> None:
-    current = await sm.get_or_create(target_id)
-    if target_state == AccountState.BANNED:
-        if current == AccountState.RESTRICTED_WITHDRAWAL:
-            await sm.transition(
-                target_id,
-                AccountState.UNDER_SURVEILLANCE,
-                "L2_ANALYSIS",
-                "GEMINI_VERDICT",
-                f"L2 intermediate transition (risk_score: {risk_score})",
-            )
-        current = await sm.get_or_create(target_id)
-        if current == AccountState.UNDER_SURVEILLANCE:
-            await sm.transition(
-                target_id,
-                AccountState.BANNED,
-                "L2_ANALYSIS",
-                "GEMINI_VERDICT",
-                f"RMT confirmed (risk_score: {risk_score})",
-            )
-    elif target_state == AccountState.UNDER_SURVEILLANCE:
-        if current == AccountState.RESTRICTED_WITHDRAWAL:
-            await sm.transition(
-                target_id,
-                AccountState.UNDER_SURVEILLANCE,
-                "L2_ANALYSIS",
-                "GEMINI_VERDICT",
-                f"Requires surveillance (risk_score: {risk_score})",
-            )
-    elif target_state == AccountState.NORMAL:
-        if current in (AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE):
-            await sm.transition(
-                target_id,
-                AccountState.NORMAL,
-                "L2_ANALYSIS",
-                "GEMINI_VERDICT",
-                f"Low-risk auto recovery (risk_score: {risk_score})",
-            )
+    except Exception as exc:
+        logger.error(f"Synchronous L2 analysis task failed: {exc}", exc_info=True)
 
 
 async def _withdraw_status(user_id: str) -> tuple[int, str]:
@@ -352,7 +327,7 @@ async def run_showcase_smurfing():
         )
         try:
             verdict = await l2.analyze(analysis_req)
-            await _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+            await sm.apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
             latest_analysis = verdict
             _persist_runtime_snapshot()
         except Exception as exc:

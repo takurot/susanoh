@@ -91,6 +91,10 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/susanoh
 
 # サーバー起動 (開発モード)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+# (Optional) 非同期ワーカーの起動 (L2分析を非同期で行う場合)
+# REDIS_URL が必要です。未設定の場合はサーバープロセス内で同期的に処理されます。
+arq backend.worker.WorkerSettings
 ```
 
 ### 2. フロントエンド構築
