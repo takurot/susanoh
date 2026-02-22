@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.models import (
     AccountState,
@@ -32,6 +34,27 @@ l1 = L1Engine()
 l2 = L2Engine()
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
+
+
+def _configured_api_keys() -> set[str]:
+    raw = os.environ.get("SUSANOH_API_KEYS", "")
+    return {key.strip() for key in raw.split(",") if key.strip()}
+
+
+@app.middleware("http")
+async def api_key_auth_middleware(request, call_next):
+    if request.url.path.startswith("/api/v1"):
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
+        allowed_keys = _configured_api_keys()
+        if allowed_keys:
+            provided = request.headers.get("X-API-KEY")
+            if not provided:
+                return JSONResponse(status_code=401, content={"detail": "Missing X-API-KEY header"})
+            if provided not in allowed_keys:
+                return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+
+    return await call_next(request)
 
 
 def reset_runtime_state() -> None:
