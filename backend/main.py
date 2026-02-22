@@ -44,6 +44,8 @@ def _configured_api_keys() -> set[str]:
 @app.middleware("http")
 async def api_key_auth_middleware(request, call_next):
     if request.url.path.startswith("/api/v1"):
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
         allowed_keys = _configured_api_keys()
         if allowed_keys:
             provided = request.headers.get("X-API-KEY")

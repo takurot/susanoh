@@ -48,3 +48,16 @@ def test_health_endpoint_is_public_even_when_auth_is_enabled(monkeypatch):
     response = client.get("/")
     assert response.status_code == 200
 
+
+def test_preflight_options_is_allowed_when_auth_is_enabled(monkeypatch):
+    monkeypatch.setenv("SUSANOH_API_KEYS", "dev-key")
+
+    response = client.options(
+        "/api/v1/stats",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert "access-control-allow-methods" in response.headers
