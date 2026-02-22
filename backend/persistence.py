@@ -118,7 +118,7 @@ class PersistenceStore:
     def persist_runtime_snapshot(
         self,
         sm: "StateMachine",
-        l1: "L1Engine",
+        l1: "L1Engine" | None,
         l2_results: list["ArbitrationResult"],
     ) -> None:
         if not self.enabled:
@@ -137,27 +137,28 @@ class PersistenceStore:
                     session.add(UserRecord(user_id=user_id, state=state.value, updated_at=now))
 
             # Append only new events
-            existing_event_ids = {r[0] for r in session.query(EventLogRecord.event_id).all()}
-            for event, screening in l1.recent_events:
-                if event.event_id in existing_event_ids:
-                    continue
-                session.add(
-                    EventLogRecord(
-                        event_id=event.event_id,
-                        timestamp=event.timestamp,
-                        event_type=event.event_type,
-                        actor_id=event.actor_id,
-                        target_id=event.target_id,
-                        currency_amount=event.action_details.currency_amount,
-                        item_id=event.action_details.item_id,
-                        market_avg_price=event.action_details.market_avg_price,
-                        actor_level=event.context_metadata.actor_level,
-                        account_age_days=event.context_metadata.account_age_days,
-                        recent_chat_log=event.context_metadata.recent_chat_log,
-                        screened=screening.screened,
-                        triggered_rules=",".join(screening.triggered_rules),
+            if l1:
+                existing_event_ids = {r[0] for r in session.query(EventLogRecord.event_id).all()}
+                for event, screening in l1.recent_events:
+                    if event.event_id in existing_event_ids:
+                        continue
+                    session.add(
+                        EventLogRecord(
+                            event_id=event.event_id,
+                            timestamp=event.timestamp,
+                            event_type=event.event_type,
+                            actor_id=event.actor_id,
+                            target_id=event.target_id,
+                            currency_amount=event.action_details.currency_amount,
+                            item_id=event.action_details.item_id,
+                            market_avg_price=event.action_details.market_avg_price,
+                            actor_level=event.context_metadata.actor_level,
+                            account_age_days=event.context_metadata.account_age_days,
+                            recent_chat_log=event.context_metadata.recent_chat_log,
+                            screened=screening.screened,
+                            triggered_rules=",".join(screening.triggered_rules),
+                        )
                     )
-                )
 
             # Append only new analysis results (using created_at heuristic or better uniquely identify them)
             # For simplicity in this snapshot model, we'll append all if we can't easily dedup, 

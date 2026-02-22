@@ -198,3 +198,42 @@ class StateMachine:
                 await self.redis.incr("susanoh:blocked_withdrawals")
             except RedisError:
                 pass
+
+    async def apply_l2_verdict(self, target_id: str, target_state: AccountState, risk_score: int) -> None:
+        current = await self.get_or_create(target_id)
+        if target_state == AccountState.BANNED:
+            if current == AccountState.RESTRICTED_WITHDRAWAL:
+                await self.transition(
+                    target_id,
+                    AccountState.UNDER_SURVEILLANCE,
+                    "L2_ANALYSIS",
+                    "GEMINI_VERDICT",
+                    f"L2 intermediate transition (risk_score: {risk_score})",
+                )
+            current = await self.get_or_create(target_id)
+            if current == AccountState.UNDER_SURVEILLANCE:
+                await self.transition(
+                    target_id,
+                    AccountState.BANNED,
+                    "L2_ANALYSIS",
+                    "GEMINI_VERDICT",
+                    f"RMT confirmed (risk_score: {risk_score})",
+                )
+        elif target_state == AccountState.UNDER_SURVEILLANCE:
+            if current == AccountState.RESTRICTED_WITHDRAWAL:
+                await self.transition(
+                    target_id,
+                    AccountState.UNDER_SURVEILLANCE,
+                    "L2_ANALYSIS",
+                    "GEMINI_VERDICT",
+                    f"Requires surveillance (risk_score: {risk_score})",
+                )
+        elif target_state == AccountState.NORMAL:
+            if current in (AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE):
+                await self.transition(
+                    target_id,
+                    AccountState.NORMAL,
+                    "L2_ANALYSIS",
+                    "GEMINI_VERDICT",
+                    f"Low-risk auto recovery (risk_score: {risk_score})",
+                )

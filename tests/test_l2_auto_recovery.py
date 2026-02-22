@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 
-from backend.main import _apply_l2_verdict, sm
+from backend.main import sm
 from backend.models import AccountState
 
 
@@ -17,7 +17,7 @@ async def test_low_risk_verdict_auto_recovers_to_normal():
     await sm.get_or_create(user_id)
     await sm.transition(user_id, AccountState.RESTRICTED_WITHDRAWAL, "L1", "R1")
 
-    await _apply_l2_verdict(user_id, AccountState.NORMAL, risk_score=10)
+    await sm.apply_l2_verdict(user_id, AccountState.NORMAL, risk_score=10)
 
     assert await sm.get_or_create(user_id) == AccountState.NORMAL
 
@@ -29,6 +29,6 @@ async def test_low_risk_verdict_auto_recovers_surveillance_to_normal():
     await sm.transition(user_id, AccountState.RESTRICTED_WITHDRAWAL, "L1", "R1")
     await sm.transition(user_id, AccountState.UNDER_SURVEILLANCE, "L2", "GEMINI")
 
-    await _apply_l2_verdict(user_id, AccountState.NORMAL, risk_score=25)
+    await sm.apply_l2_verdict(user_id, AccountState.NORMAL, risk_score=25)
 
     assert await sm.get_or_create(user_id) == AccountState.NORMAL

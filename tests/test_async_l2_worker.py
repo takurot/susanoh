@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from backend.worker import analyze_l2_task, apply_l2_verdict
+from backend.worker import analyze_l2_task
 from backend.models import (
     AccountState, 
     AnalysisRequest, 
@@ -17,11 +17,12 @@ from backend.state_machine import StateMachine
 
 @pytest.mark.asyncio
 async def test_apply_l2_verdict_to_banned():
-    sm = MagicMock(spec=StateMachine)
-    sm.get_or_create = AsyncMock(side_effect=[AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE])
+    sm = StateMachine()
+    # Mock transition to avoid Redis
     sm.transition = AsyncMock(return_value=True)
+    sm.get_or_create = AsyncMock(side_effect=[AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE])
     
-    await apply_l2_verdict(sm, "u1", AccountState.BANNED, 100)
+    await sm.apply_l2_verdict("u1", AccountState.BANNED, 100)
     
     # Should transition from RESTRICTED_WITHDRAWAL to UNDER_SURVEILLANCE, 
     # then from UNDER_SURVEILLANCE to BANNED.
@@ -31,11 +32,11 @@ async def test_apply_l2_verdict_to_banned():
 
 @pytest.mark.asyncio
 async def test_apply_l2_verdict_to_normal():
-    sm = MagicMock(spec=StateMachine)
-    sm.get_or_create = AsyncMock(return_value=AccountState.RESTRICTED_WITHDRAWAL)
+    sm = StateMachine()
     sm.transition = AsyncMock(return_value=True)
+    sm.get_or_create = AsyncMock(return_value=AccountState.RESTRICTED_WITHDRAWAL)
     
-    await apply_l2_verdict(sm, "u1", AccountState.NORMAL, 10)
+    await sm.apply_l2_verdict("u1", AccountState.NORMAL, 10)
     
     sm.transition.assert_called_once_with("u1", AccountState.NORMAL, "L2_ANALYSIS", "GEMINI_VERDICT", "Low-risk auto recovery (risk_score: 10)")
 
@@ -71,5 +72,23 @@ async def test_analyze_l2_task_success():
     await analyze_l2_task(ctx, analysis_req)
     
     ctx['l2'].analyze.assert_called_once_with(analysis_req)
-    ctx['sm'].transition.assert_called_once()
+    ctx['sm'].apply_l2_verdict.assert_called_once_with(
+        verdict.target_id, verdict.recommended_action, verdict.risk_score
+    )
     ctx['persistence'].persist_runtime_snapshot.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_worker_startup_shutdown():
+    from backend.worker import startup, shutdown
+    ctx = {'redis': MagicMock()}
+    
+    await startup(ctx)
+    
+    assert 'sm' in ctx
+    assert isinstance(ctx['sm'], StateMachine)
+    assert 'l2' in ctx
+    assert 'persistence' in ctx
+    
+    await shutdown(ctx)
+    # Just checking it doesn't crash
