@@ -2,14 +2,14 @@
 
 ## 概要
 
-本ドキュメントでは、Susanohをハッカソンプロトタイプからプロダクションレディなミドルウェアへ昇華させるための段階的実装計画を定義する。
+本ドキュメントでは、Susanohを現在のプロトタイプ（インメモリ・シングルプロセス）からプロダクションレディなミドルウェアへ昇華させるための段階的実装計画を定義する。
 各フェーズは、前フェーズの安定稼働を前提として進行する。
 
 ---
 
 ## Phase 1: Foundation for Production (基盤強化)
 
-プロトタイプ（インメモリ・シングルプロセス）から、永続化・分散対応可能なアーキテクチャへの移行を最優先とする。
+プロトタイプから、永続化・分散対応可能なアーキテクチャへの移行を最優先とする。
 
 ### 1.1 永続化層の実装
 - **Database**: PostgreSQLの導入
@@ -20,7 +20,7 @@
   - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用)
 
 ### 1.2 認証・認可基盤
-- **Service Authentication**: ゲームサーバー向けAPI Key認証 (`X-API-KEY`) の実装と管理機能
+- **Service Authentication**: ゲームサーバー向けAPI Key認証 (`X-API-KEY`) の実装と管理機能（Middleware実装）
 - **User Authentication**: ダッシュボード向けJWT認証 (OAuth2 Password Bearer)
 - **RBAC**: `Admin`, `Operator`, `Viewer` ロールの実装
 
@@ -28,6 +28,9 @@
 - **Task Queue**: Celery または Arq の導入
 - L2 Gemini分析処理をWebサーバープロセスから分離し、ワーカープロセスへ委譲
 - 分析結果のWebフック通知またはポーリング用DB格納
+
+### 1.4 ステートマシン機能補完
+- **自動復旧ロジック**: L2分析結果が「Low Risk」の場合、自動的に `RESTRICTED_WITHDRAWAL` から `NORMAL` へ戻す処理の実装
 
 ---
 
