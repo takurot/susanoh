@@ -51,8 +51,8 @@ graph TD
 ### Current Implementation (Prototype)
 
 - **Backend**: FastAPI (Single Process)
-- **State Store**: In-Memory Python Dicts (Redis未導入)
-- **Persistence**: `DATABASE_URL` 設定時にSQLAlchemy経由でスナップショット永続化を実行
+- **State Store**: Redis (Implemented Phase 1)
+- **Persistence**: PostgreSQL snapshot persistence (Implemented Phase 1)
 - **AI Engine**: Google Gemini API (Direct Call)
 - **Frontend**: React, TypeScript, Vite
 
@@ -147,9 +147,9 @@ curl -H "X-API-KEY: dev-key" http://localhost:8000/api/v1/stats
 - [x] **Prototype**: L1 ルールエンジン & ステートマシン (In-Memory)
 - [x] **Prototype**: L2 Gemini 分析統合
 - [x] **Prototype**: リアルタイムダッシュボード
-- [~] **Phase 1**: PostgreSQL 永続化 & Redis 導入
+- [x] **Phase 1**: PostgreSQL 永続化 & Redis 導入
   - PostgreSQLスナップショット永続化（SQLAlchemy）: 実装済み
-  - Redis state store: 未実装
+  - Redis state store: 実装済み (2026-02-22)
 - [~] **Phase 1**: 認証・認可基盤 (API Key / JWT)
   - Service API Key (`X-API-KEY` middleware): 実装済み
   - JWT / RBAC: 未実装

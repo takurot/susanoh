@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import re
 import json
+import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
+
+from redis.exceptions import RedisError
 
 from backend.models import (
     AnalysisRequest,
@@ -17,6 +20,8 @@ from backend.models import (
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+
+logger = logging.getLogger(__name__)
 
 WINDOW_SECONDS = 300  # 5 min
 
@@ -37,8 +42,9 @@ class UserWindow:
         self.events.append(event)
         self._purge()
 
-    def _purge(self) -> None:
-        cutoff = datetime.now(UTC)
+    def _purge(self, cutoff: Optional[datetime] = None) -> None:
+        if cutoff is None:
+            cutoff = datetime.now(UTC)
         window_limit = cutoff - timedelta(seconds=WINDOW_SECONDS)
         while self.events:
             try:
@@ -80,10 +86,13 @@ class L1Engine:
         self._recent_events.clear()
         self._l1_flag_count = 0
         if self.redis:
-            keys = await self.redis.keys("susanoh:window:*")
-            if keys:
-                await self.redis.delete(*keys)
-            await self.redis.delete("susanoh:recent_events", "susanoh:l1_flag_count")
+            try:
+                keys = await self.redis.keys("susanoh:window:*")
+                if keys:
+                    await self.redis.delete(*keys)
+                await self.redis.delete("susanoh:recent_events", "susanoh:l1_flag_count")
+            except RedisError as e:
+                logger.warning("Redis reset failed: %s. Using in-memory fallback.", e)
 
     async def screen(self, event: GameEventLog) -> ScreeningResult:
         target_id = event.target_id
@@ -91,26 +100,39 @@ class L1Engine:
         total_amount = 0
         tx_count = 0
         
+        # In-memory always tracks for fallback/snapshot
+        window = self.user_windows[target_id]
+        window.add_event(event)
+
         if self.redis:
-            key = f"susanoh:window:{target_id}"
-            now_ts = datetime.now(UTC).timestamp()
-            cutoff_ts = now_ts - WINDOW_SECONDS
-            
-            # Add current event
-            await self.redis.zadd(key, {event.model_dump_json(): now_ts})
-            # Purge old events
-            await self.redis.zremrangebyscore(key, "-inf", cutoff_ts)
-            # Set TTL to slightly more than window
-            await self.redis.expire(key, WINDOW_SECONDS + 60)
-            
-            # Get all events in window
-            raw_events = await self.redis.zrange(key, 0, -1)
-            events_in_window = [GameEventLog.model_validate_json(e) for e in raw_events]
-            total_amount = sum(e.action_details.currency_amount for e in events_in_window)
-            tx_count = len(events_in_window)
+            try:
+                key = f"susanoh:window:{target_id}"
+                # Use event timestamp as score for consistency (Finding 3)
+                try:
+                    event_ts = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    event_ts = datetime.now(UTC).timestamp()
+                
+                cutoff_ts = event_ts - WINDOW_SECONDS
+                
+                # Add current event
+                await self.redis.zadd(key, {event.model_dump_json(): event_ts})
+                # Purge old events
+                await self.redis.zremrangebyscore(key, "-inf", cutoff_ts)
+                # Set TTL
+                await self.redis.expire(key, WINDOW_SECONDS + 60)
+                
+                # Get window stats
+                raw_events = await self.redis.zrange(key, 0, -1)
+                events_in_window = [GameEventLog.model_validate_json(e) for e in raw_events]
+                total_amount = sum(e.action_details.currency_amount for e in events_in_window)
+                tx_count = len(events_in_window)
+            except RedisError as e:
+                logger.error("Redis screening failed: %s. Degraded to in-memory.", e)
+                # Fail open to in-memory mode
+                total_amount = window.total_amount()
+                tx_count = window.transaction_count()
         else:
-            window = self.user_windows[target_id]
-            window.add_event(event)
             total_amount = window.total_amount()
             tx_count = window.transaction_count()
 
@@ -137,7 +159,10 @@ class L1Engine:
         if triggered:
             self._l1_flag_count += 1
             if self.redis:
-                await self.redis.incr("susanoh:l1_flag_count")
+                try:
+                    await self.redis.incr("susanoh:l1_flag_count")
+                except RedisError:
+                    pass
 
         result = ScreeningResult(
             screened=bool(triggered),
@@ -148,13 +173,15 @@ class L1Engine:
         
         self._recent_events.append((event, result))
         if self.redis:
-            # We keep recent events in a list for dashboard
-            data = json.dumps({
-                "event": event.model_dump(),
-                "result": result.model_dump()
-            })
-            await self.redis.lpush("susanoh:recent_events", data)
-            await self.redis.ltrim("susanoh:recent_events", 0, 199)
+            try:
+                data = json.dumps({
+                    "event": event.model_dump(),
+                    "result": result.model_dump()
+                })
+                await self.redis.lpush("susanoh:recent_events", data)
+                await self.redis.ltrim("susanoh:recent_events", 0, 199)
+            except RedisError:
+                pass
 
         return result
 
@@ -169,15 +196,26 @@ class L1Engine:
         related_events = []
 
         if self.redis:
-            key = f"susanoh:window:{user_id}"
-            now_ts = datetime.now(UTC).timestamp()
-            cutoff_ts = now_ts - WINDOW_SECONDS
-            await self.redis.zremrangebyscore(key, "-inf", cutoff_ts)
-            raw_events = await self.redis.zrange(key, 0, -1)
-            related_events = [GameEventLog.model_validate_json(e) for e in raw_events]
-            total_amount = sum(e.action_details.currency_amount for e in related_events)
-            tx_count = len(related_events)
-            unique_senders = len({e.actor_id for e in related_events})
+            try:
+                key = f"susanoh:window:{user_id}"
+                try:
+                    event_ts = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    event_ts = datetime.now(UTC).timestamp()
+                cutoff_ts = event_ts - WINDOW_SECONDS
+                await self.redis.zremrangebyscore(key, "-inf", cutoff_ts)
+                raw_events = await self.redis.zrange(key, 0, -1)
+                related_events = [GameEventLog.model_validate_json(e) for e in raw_events]
+                total_amount = sum(e.action_details.currency_amount for e in related_events)
+                tx_count = len(related_events)
+                unique_senders = len({e.actor_id for e in related_events})
+            except RedisError:
+                # Fallback to in-memory
+                window = self.user_windows.get(user_id, UserWindow())
+                related_events = list(window.events)
+                total_amount = window.total_amount()
+                tx_count = window.transaction_count()
+                unique_senders = window.unique_senders()
         else:
             window = self.user_windows.get(user_id, UserWindow())
             related_events = list(window.events)
@@ -200,16 +238,19 @@ class L1Engine:
 
     async def get_recent_events(self, limit: int = 20) -> list[dict]:
         if self.redis:
-            raw = await self.redis.lrange("susanoh:recent_events", 0, limit - 1)
-            results = []
-            for item in raw:
-                data = json.loads(item)
-                results.append({
-                    **data["event"],
-                    "screened": data["result"]["screened"],
-                    "triggered_rules": data["result"]["triggered_rules"],
-                })
-            return results
+            try:
+                raw = await self.redis.lrange("susanoh:recent_events", 0, limit - 1)
+                results = []
+                for item in raw:
+                    data = json.loads(item)
+                    results.append({
+                        **data["event"],
+                        "screened": data["result"]["screened"],
+                        "triggered_rules": data["result"]["triggered_rules"],
+                    })
+                return results
+            except RedisError:
+                pass
 
         events = list(self._recent_events)
         return [
@@ -227,10 +268,13 @@ class L1Engine:
 
         events_to_process = []
         if self.redis:
-            raw = await self.redis.lrange("susanoh:recent_events", 0, -1)
-            for item in raw:
-                data = json.loads(item)
-                events_to_process.append(GameEventLog.model_validate(data["event"]))
+            try:
+                raw = await self.redis.lrange("susanoh:recent_events", 0, -1)
+                for item in raw:
+                    data = json.loads(item)
+                    events_to_process.append(GameEventLog.model_validate(data["event"]))
+            except RedisError:
+                events_to_process = [e for e, _ in self._recent_events]
         else:
             events_to_process = [e for e, _ in self._recent_events]
 
@@ -245,8 +289,6 @@ class L1Engine:
 
         nodes = []
         for nid in node_ids:
-            # Note: accounts passed here might be stale if using Redis, 
-            # but for graph visualization it's okay for now.
             state = accounts.get(nid, AccountState.NORMAL)
             nodes.append({"id": nid, "state": state.value, "label": nid})
 

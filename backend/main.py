@@ -22,7 +22,16 @@ from backend.mock_server import MockGameServer, DemoStreamer
 from backend.persistence import PersistenceStore
 from backend.redis_client import RedisClient
 
-app = FastAPI(title="Susanoh", version="0.1.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic can go here if needed
+    yield
+    # Shutdown logic
+    await redis_client.close()
+
+app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -46,11 +55,6 @@ persistence_store.init_schema()
 def _configured_api_keys() -> set[str]:
     raw = os.environ.get("SUSANOH_API_KEYS", "")
     return {key.strip() for key in raw.split(",") if key.strip()}
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await redis_client.close()
 
 
 @app.middleware("http")
@@ -78,10 +82,9 @@ async def reset_runtime_state() -> None:
 
 def _persist_runtime_snapshot() -> None:
     # Snapshotting to DB is primarily for in-memory mode in this prototype.
-    # If Redis is enabled, we might want a different persistence strategy,
-    # but for now we keep this as best-effort for in-memory data.
-    if redis_client.enabled:
-        return
+    # However, we allow it even with Redis if DATABASE_URL is set (Finding 2).
+    # Note that sm.accounts and l1.recent_events will contain the most recent 
+    # data since StateMachine/L1Engine now maintain local caches.
     try:
         persistence_store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=l2.analysis_results)
     except Exception as exc:
@@ -274,9 +277,14 @@ async def get_transitions(limit: int = Query(default=50, le=200)):
 # --- Graph ---
 @app.get("/api/v1/graph")
 async def get_graph():
-    # Note: sm.accounts might be empty if using Redis, 
-    # but we'll accept this for the prototype's graph for now.
-    return await l1.get_graph_data(sm.accounts)
+    # Resolve node states from Redis if available (Finding 4)
+    recent = await l1.get_recent_events(limit=200)
+    user_ids = set()
+    for e in recent:
+        user_ids.add(e["actor_id"])
+        user_ids.add(e["target_id"])
+    resolved = await sm.resolve_accounts(list(user_ids))
+    return await l1.get_graph_data(resolved)
 
 
 # --- L2 Analyze ---
