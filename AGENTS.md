@@ -7,6 +7,14 @@
 - `docs/`: Product and implementation references (`SPEC.md`, `PLAN.md`, `PROMPT.md`, `RULE.md`).
 - `.agent/skills/`: Agent skill definitions and references used during automated development workflows.
 
+## Project Skills
+- `start-task`: Starts and executes implementation tasks with Susanoh-specific planning and quality rules. Path: `.agent/skills/start-task/SKILL.md`
+- `code-review`: Reviews PRs/branch diffs for regressions, spec drift, and missing tests. Path: `.agent/skills/code-review/SKILL.md`
+
+### Skill Trigger Rules
+- If the user explicitly names a skill (e.g. `$start-task`, `$code-review`), load and follow that skill.
+- If the request clearly matches a skill description, load and follow the matching skill.
+
 ## Build, Test, and Development Commands
 - Backend setup: `python3 -m venv .venv && .venv/bin/python -m pip install -r backend/requirements.txt`
 - Run backend: `.venv/bin/python -m uvicorn backend.main:app --reload`

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from backend.models import (
     AnalysisRequest,
@@ -33,13 +33,14 @@ class UserWindow:
         self._purge()
 
     def _purge(self) -> None:
-        cutoff = datetime.utcnow() - timedelta(seconds=WINDOW_SECONDS)
+        cutoff = datetime.now(UTC)
+        window_limit = cutoff - timedelta(seconds=WINDOW_SECONDS)
         while self.events:
             try:
-                ts = datetime.fromisoformat(self.events[0].timestamp.replace("Z", "+00:00")).replace(tzinfo=None)
+                ts = datetime.fromisoformat(self.events[0].timestamp.replace("Z", "+00:00"))
             except Exception:
-                ts = datetime.utcnow()
-            if ts < cutoff:
+                ts = cutoff
+            if ts < window_limit:
                 self.events.popleft()
             else:
                 break

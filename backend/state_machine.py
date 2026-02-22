@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.models import AccountState, TransitionLog
 
@@ -46,7 +46,7 @@ class StateMachine:
             to_state=new_state,
             trigger=trigger,
             triggered_by_rule=rule,
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(UTC).isoformat() + "Z",
             evidence_summary=evidence_summary,
         )
         self.accounts[user_id] = new_state

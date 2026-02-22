@@ -17,6 +17,13 @@ def reset_runtime_state(monkeypatch):
     # Make smurfing scenario deterministic for stable E2E assertions.
     mock_server.random.seed(42)
     monkeypatch.setattr(mock_server.random, "choice", lambda seq: seq[0])
+
+    # Disable background L2 tasks to keep state assertions deterministic.
+    def _drop_background_task(coro):
+        coro.close()
+        return None
+
+    monkeypatch.setattr(main_module.asyncio, "create_task", _drop_background_task)
     yield
 
 

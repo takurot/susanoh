@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Optional
 
@@ -18,8 +19,10 @@ from backend.state_machine import StateMachine
 from backend.l1_screening import L1Engine
 from backend.l2_gemini import L2Engine
 from backend.mock_server import MockGameServer, DemoStreamer
+from backend.persistence import PersistenceStore
 
 app = FastAPI(title="Susanoh", version="0.1.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,6 +37,8 @@ l1 = L1Engine()
 l2 = L2Engine()
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
+persistence_store = PersistenceStore.from_env()
+persistence_store.init_schema()
 
 
 def _configured_api_keys() -> set[str]:
@@ -61,6 +66,14 @@ def reset_runtime_state() -> None:
     sm.reset()
     l1.reset()
     l2.reset()
+    persistence_store.clear_all()
+
+
+def _persist_runtime_snapshot() -> None:
+    try:
+        persistence_store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=l2.analysis_results)
+    except Exception as exc:
+        logger.warning("Failed to persist runtime snapshot: %s", exc)
 
 
 async def _process_event(event: GameEventLog) -> dict:
@@ -99,6 +112,7 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
         )
         asyncio.create_task(_run_l2(analysis_req))
 
+    _persist_runtime_snapshot()
     return {"screened": result.screened, "triggered_rules": result.triggered_rules}
 
 
@@ -106,6 +120,7 @@ async def _run_l2(analysis_req) -> None:
     try:
         verdict = await l2.analyze(analysis_req)
         _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+        _persist_runtime_snapshot()
     except Exception:
         pass
 
@@ -224,6 +239,7 @@ async def release_user(user_id: str):
     ok = sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
     if not ok:
         raise HTTPException(500, "State transition failed")
+    _persist_runtime_snapshot()
     return {"user_id": user_id, "state": AccountState.NORMAL.value}
 
 
@@ -258,6 +274,7 @@ async def analyze(event: GameEventLog):
         event.target_id, event, result.triggered_rules, current_state
     )
     verdict = await l2.analyze(analysis_req)
+    _persist_runtime_snapshot()
     return verdict
 
 
@@ -315,6 +332,7 @@ async def run_showcase_smurfing():
             verdict = await l2.analyze(analysis_req)
             _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
             latest_analysis = verdict
+            _persist_runtime_snapshot()
         except Exception as exc:
             analysis_error = f"L2 analysis failed: {exc}"
     else:

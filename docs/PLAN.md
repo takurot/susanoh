@@ -12,9 +12,10 @@
 プロトタイプから、永続化・分散対応可能なアーキテクチャへの移行を最優先とする。
 
 ### 1.1 永続化層の実装
-- [ ] **Database**: PostgreSQLの導入
+- [x] **Database**: PostgreSQLの導入
   - `User`, `EventLog`, `AnalysisResult`, `AuditLog` テーブルのスキーマ設計 (SQLAlchemy / Alembic)
   - 既存のインメモリデータのDB移行ロジック
+  - Status: プロトタイプ実装済み（`DATABASE_URL` 設定時にSQLAlchemyでスキーマ作成 + スナップショット永続化、2026-02-22）
 - [ ] **State Store**: Redisの導入
   - ステートマシン状態のRedis管理
   - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
@@ -35,7 +35,7 @@ class ContextMetadata(BaseModel):
 
 class GameEventLog(BaseModel):
     event_id: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat() + "Z")
     event_type: str = "TRADE"
     actor_id: str
     target_id: str
@@ -75,7 +75,7 @@ class TransitionLog(BaseModel):
     to_state: AccountState
     trigger: str
     triggered_by_rule: str
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat() + "Z")
     evidence_summary: str = ""
 
 

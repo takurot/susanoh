@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.models import ActionDetails, ContextMetadata, GameEventLog
 
@@ -18,7 +18,7 @@ def _eid() -> str:
 
 
 def _ts() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat() + "Z"
 
 
 class MockGameServer:
