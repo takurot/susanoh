@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
 from backend.main import app, sm
 from backend.models import AccountState
@@ -6,7 +7,7 @@ from backend.models import AccountState
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    sm.reset()
+    asyncio.run(sm.reset())
     yield
 
 
@@ -14,6 +15,7 @@ client = TestClient(app)
 
 
 def test_withdraw_normal_200():
+    # sm.accounts property returns the internal dict, so this still works for in-memory mode tests.
     sm.accounts["u1"] = AccountState.NORMAL
     resp = client.post("/api/v1/withdraw", json={"user_id": "u1", "amount": 100})
     assert resp.status_code == 200

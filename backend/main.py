@@ -20,8 +20,18 @@ from backend.l1_screening import L1Engine
 from backend.l2_gemini import L2Engine
 from backend.mock_server import MockGameServer, DemoStreamer
 from backend.persistence import PersistenceStore
+from backend.redis_client import RedisClient
 
-app = FastAPI(title="Susanoh", version="0.1.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic can go here if needed
+    yield
+    # Shutdown logic
+    await redis_client.close()
+
+app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
@@ -32,8 +42,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-sm = StateMachine()
-l1 = L1Engine()
+redis_client = RedisClient()
+sm = StateMachine(redis_client.get_client())
+l1 = L1Engine(redis_client.get_client())
 l2 = L2Engine()
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
@@ -62,14 +73,18 @@ async def api_key_auth_middleware(request, call_next):
     return await call_next(request)
 
 
-def reset_runtime_state() -> None:
-    sm.reset()
-    l1.reset()
+async def reset_runtime_state() -> None:
+    await sm.reset()
+    await l1.reset()
     l2.reset()
     persistence_store.clear_all()
 
 
 def _persist_runtime_snapshot() -> None:
+    # Snapshotting to DB is primarily for in-memory mode in this prototype.
+    # However, we allow it even with Redis if DATABASE_URL is set (Finding 2).
+    # Note that sm.accounts and l1.recent_events will contain the most recent 
+    # data since StateMachine/L1Engine now maintain local caches.
     try:
         persistence_store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=l2.analysis_results)
     except Exception as exc:
@@ -86,15 +101,15 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
     `schedule_l2=False` is used by showcase flow to keep L2 execution deterministic:
     the endpoint runs one explicit synchronous L2 call and returns the final summary.
     """
-    sm.get_or_create(event.actor_id)
-    sm.get_or_create(event.target_id)
+    await sm.get_or_create(event.actor_id)
+    await sm.get_or_create(event.target_id)
 
-    result = l1.screen(event)
+    result = await l1.screen(event)
 
     if result.screened and result.recommended_action:
-        current = sm.get_or_create(event.target_id)
+        current = await sm.get_or_create(event.target_id)
         if current == AccountState.NORMAL:
-            sm.transition(
+            await sm.transition(
                 event.target_id,
                 AccountState.RESTRICTED_WITHDRAWAL,
                 "L1_SCREENING",
@@ -104,10 +119,10 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
 
     if schedule_l2 and (result.needs_l2 or (
         result.screened
-        and sm.get_or_create(event.target_id) != AccountState.NORMAL
+        and await sm.get_or_create(event.target_id) != AccountState.NORMAL
     )):
-        current_state = sm.get_or_create(event.target_id)
-        analysis_req = l1.build_analysis_request(
+        current_state = await sm.get_or_create(event.target_id)
+        analysis_req = await l1.build_analysis_request(
             event.target_id, event, result.triggered_rules, current_state
         )
         asyncio.create_task(_run_l2(analysis_req))
@@ -119,26 +134,26 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
 async def _run_l2(analysis_req) -> None:
     try:
         verdict = await l2.analyze(analysis_req)
-        _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+        await _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
         _persist_runtime_snapshot()
     except Exception:
         pass
 
 
-def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: int) -> None:
-    current = sm.get_or_create(target_id)
+async def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: int) -> None:
+    current = await sm.get_or_create(target_id)
     if target_state == AccountState.BANNED:
         if current == AccountState.RESTRICTED_WITHDRAWAL:
-            sm.transition(
+            await sm.transition(
                 target_id,
                 AccountState.UNDER_SURVEILLANCE,
                 "L2_ANALYSIS",
                 "GEMINI_VERDICT",
                 f"L2 intermediate transition (risk_score: {risk_score})",
             )
-        current = sm.get_or_create(target_id)
+        current = await sm.get_or_create(target_id)
         if current == AccountState.UNDER_SURVEILLANCE:
-            sm.transition(
+            await sm.transition(
                 target_id,
                 AccountState.BANNED,
                 "L2_ANALYSIS",
@@ -147,7 +162,7 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
             )
     elif target_state == AccountState.UNDER_SURVEILLANCE:
         if current == AccountState.RESTRICTED_WITHDRAWAL:
-            sm.transition(
+            await sm.transition(
                 target_id,
                 AccountState.UNDER_SURVEILLANCE,
                 "L2_ANALYSIS",
@@ -156,7 +171,7 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
             )
     elif target_state == AccountState.NORMAL:
         if current in (AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE):
-            sm.transition(
+            await sm.transition(
                 target_id,
                 AccountState.NORMAL,
                 "L2_ANALYSIS",
@@ -165,9 +180,9 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
             )
 
 
-def _withdraw_status(user_id: str) -> tuple[int, str]:
+async def _withdraw_status(user_id: str) -> tuple[int, str]:
     """Return withdraw decision without mutating counters."""
-    state = sm.get_or_create(user_id)
+    state = await sm.get_or_create(user_id)
     if state == AccountState.NORMAL:
         return 200, "Withdrawal completed"
     if state == AccountState.BANNED:
@@ -175,9 +190,9 @@ def _withdraw_status(user_id: str) -> tuple[int, str]:
     return 423, "Withdrawal is restricted"
 
 
-def _record_blocked_withdrawal(status_code: int) -> None:
+async def _record_blocked_withdrawal(status_code: int) -> None:
     if status_code != 200:
-        sm.blocked_withdrawals += 1
+        await sm.increment_blocked_withdrawals()
 
 
 # --- Health ---
@@ -194,7 +209,7 @@ async def post_event(event: GameEventLog):
 
 @app.get("/api/v1/events/recent")
 async def get_recent_events(limit: int = Query(default=20, le=200)):
-    return l1.get_recent_events(limit)
+    return await l1.get_recent_events(limit)
 
 
 # --- Users ---
@@ -206,20 +221,20 @@ async def get_users(state: Optional[str] = None):
             state_filter = AccountState(state)
         except ValueError:
             raise HTTPException(400, f"Invalid state: {state}")
-    return sm.get_all_users(state_filter)
+    return await sm.get_all_users(state_filter)
 
 
 @app.get("/api/v1/users/{user_id}")
 async def get_user(user_id: str):
-    st = sm.get_or_create(user_id)
+    st = await sm.get_or_create(user_id)
     return {"user_id": user_id, "state": st.value}
 
 
 # --- Withdraw ---
 @app.post("/api/v1/withdraw")
 async def withdraw(req: WithdrawRequest):
-    status_code, message = _withdraw_status(req.user_id)
-    _record_blocked_withdrawal(status_code)
+    status_code, message = await _withdraw_status(req.user_id)
+    await _record_blocked_withdrawal(status_code)
     if status_code == 200:
         return {"status": "ok", "message": message}
     raise HTTPException(status_code, message)
@@ -228,7 +243,7 @@ async def withdraw(req: WithdrawRequest):
 # --- Release ---
 @app.post("/api/v1/users/{user_id}/release")
 async def release_user(user_id: str):
-    current = sm.get_or_create(user_id)
+    current = await sm.get_or_create(user_id)
     releasable_states = {AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE}
     if current not in releasable_states:
         raise HTTPException(
@@ -236,7 +251,7 @@ async def release_user(user_id: str):
             "Only RESTRICTED_WITHDRAWAL or UNDER_SURVEILLANCE accounts can be released "
             f"(current: {current.value})",
         )
-    ok = sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
+    ok = await sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
     if not ok:
         raise HTTPException(500, "State transition failed")
     _persist_runtime_snapshot()
@@ -246,7 +261,7 @@ async def release_user(user_id: str):
 # --- Stats ---
 @app.get("/api/v1/stats")
 async def get_stats():
-    stats = sm.get_stats()
+    stats = await sm.get_stats()
     stats["l1_flags"] = l1.l1_flag_count
     stats["l2_analyses"] = len(l2.analysis_results)
     stats["total_events"] = len(l1.recent_events)
@@ -256,21 +271,28 @@ async def get_stats():
 # --- Transitions ---
 @app.get("/api/v1/transitions")
 async def get_transitions(limit: int = Query(default=50, le=200)):
-    return sm.get_transitions(limit)
+    return await sm.get_transitions(limit)
 
 
 # --- Graph ---
 @app.get("/api/v1/graph")
 async def get_graph():
-    return l1.get_graph_data(sm.accounts)
+    # Resolve node states from Redis if available (Finding 4)
+    recent = await l1.get_recent_events(limit=200)
+    user_ids = set()
+    for e in recent:
+        user_ids.add(e["actor_id"])
+        user_ids.add(e["target_id"])
+    resolved = await sm.resolve_accounts(list(user_ids))
+    return await l1.get_graph_data(resolved)
 
 
 # --- L2 Analyze ---
 @app.post("/api/v1/analyze")
 async def analyze(event: GameEventLog):
-    current_state = sm.get_or_create(event.target_id)
-    result = l1.screen(event)
-    analysis_req = l1.build_analysis_request(
+    current_state = await sm.get_or_create(event.target_id)
+    result = await l1.screen(event)
+    analysis_req = await l1.build_analysis_request(
         event.target_id, event, result.triggered_rules, current_state
     )
     verdict = await l2.analyze(analysis_req)
@@ -322,15 +344,15 @@ async def run_showcase_smurfing():
 
     latest_analysis = None
     if trigger_event:
-        analysis_req = l1.build_analysis_request(
+        analysis_req = await l1.build_analysis_request(
             target_user,
             trigger_event,
             trigger_rules,
-            sm.get_or_create(target_user),
+            await sm.get_or_create(target_user),
         )
         try:
             verdict = await l2.analyze(analysis_req)
-            _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
+            await _apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
             latest_analysis = verdict
             _persist_runtime_snapshot()
         except Exception as exc:
@@ -338,7 +360,7 @@ async def run_showcase_smurfing():
     else:
         analysis_error = "L2 analysis skipped: no event matched target_user"
 
-    status_code, _ = _withdraw_status(target_user)
+    status_code, _ = await _withdraw_status(target_user)
     if latest_analysis is None:
         latest_analysis = next(
             (analysis for analysis in l2.get_analyses(limit=50) if analysis.target_id == target_user),
@@ -354,7 +376,7 @@ async def run_showcase_smurfing():
         target_user=target_user,
         triggered_rules=rules,
         withdraw_status_code=status_code,
-        latest_state=sm.get_or_create(target_user),
+        latest_state=await sm.get_or_create(target_user),
         latest_risk_score=latest_analysis.risk_score if latest_analysis else None,
         latest_reasoning=latest_reasoning,
         analysis_error=analysis_error,

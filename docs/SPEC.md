@@ -29,7 +29,7 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
                                         +-> [Persistence Layer] <-> [PostgreSQL]
 ```
 
-> **Note**: 現行プロトタイプは単一プロセス構成で動作しており、Rust L1/Redis/Celeryは未実装です。PostgreSQLは `DATABASE_URL` 設定時のスナップショット永続化のみ実装済みです。
+> **Note**: 現行実装は Redis によるステート管理および PostgreSQL へのスナップショット永続化に対応しています。L1 Rust Gateway および Celery Worker は将来の Phase での実装対象です。
 
 ### 1.2 コンポーネント詳細
 

@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -25,7 +26,7 @@ def sqlite_store(tmp_path):
 @pytest.fixture(autouse=True)
 def reset_runtime(monkeypatch, sqlite_store):
     monkeypatch.setattr(main_module, "persistence_store", sqlite_store)
-    main_module.reset_runtime_state()
+    asyncio.run(main_module.reset_runtime_state())
 
     # Keep scenario generation deterministic for stable E2E assertions.
     mock_server.random.seed(42)

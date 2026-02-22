@@ -16,9 +16,10 @@
   - `User`, `EventLog`, `AnalysisResult`, `AuditLog` テーブルのスキーマ設計 (SQLAlchemy / Alembic)
   - 既存のインメモリデータのDB移行ロジック
   - Status: プロトタイプ実装済み（`DATABASE_URL` 設定時にSQLAlchemyでスキーマ作成 + スナップショット永続化、2026-02-22）
-- [ ] **State Store**: Redisの導入
-  - ステートマシン状態のRedis管理
-  - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用)
+- [x] **State Store**: Redisの導入
+  - ステートマシン状態のRedis管理 (実装済み, 2026-02-22)
+  - L1スライディングウィンドウデータのRedis移行 (Sorted Sets活用, 2026-02-22)
+  - Async/Await化による分散対応への基盤構築 (2026-02-22)
 
 ### 1.2 認証・認可基盤
 - [x] **Service Authentication**: ゲームサーバー向けAPI Key認証 (`X-API-KEY`) の実装と管理機能（Middleware実装）
@@ -34,6 +35,21 @@
 ### 1.4 ステートマシン機能補完
 - [x] **自動復旧ロジック**: L2分析結果が「Low Risk」の場合、自動的に `RESTRICTED_WITHDRAWAL` から `NORMAL` へ戻す処理の実装
   - Status: プロトタイプ実装済み（2026-02-22）
+
+---
+
+## Phase 1.5: Testing & Quality Assurance (テスト・品質保証の強化)
+
+プロダクション移行に向け、テストの自動化とカバレッジの向上を図る。
+
+### 1.5.1 テスト基盤の整備
+- [ ] **Coverage Analysis**: `pytest-cov` を導入し、バックエンドのカバレッジを可視化。
+- [ ] **Frontend Testing**: Playwright を導入し、ダッシュボードの主要導線の E2E テストを自動化。
+
+### 1.5.2 信頼性の検証
+- [ ] **Concurrency Testing**: 大量イベント同時受信時、およびステート遷移時の Race Condition 検証。
+- [ ] **Fault Injection**: Redis/Gemini API などの外部依存先が「スローレスポンス」や「瞬断」した際の耐障害性テストの拡充。
+- [ ] **Live API Verification**: ステージング環境における Gemini API との定期的疎通確認テスト。
 
 ---
 

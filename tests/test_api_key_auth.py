@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from fastapi.testclient import TestClient
 
 from backend.main import app, reset_runtime_state
@@ -9,7 +10,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_state_and_auth(monkeypatch):
-    reset_runtime_state()
+    asyncio.run(reset_runtime_state())
     monkeypatch.delenv("SUSANOH_API_KEYS", raising=False)
     yield
 
