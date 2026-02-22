@@ -40,6 +40,14 @@ def test_manual_release(sm):
     assert sm.accounts["u1"] == AccountState.NORMAL
 
 
+def test_auto_recovery_from_restricted_to_normal(sm):
+    sm.get_or_create("u1")
+    sm.transition("u1", AccountState.RESTRICTED_WITHDRAWAL, "L1", "R1")
+
+    assert sm.transition("u1", AccountState.NORMAL, "L2_ANALYSIS", "GEMINI_LOW_RISK") is True
+    assert sm.accounts["u1"] == AccountState.NORMAL
+
+
 def test_can_withdraw(sm):
     assert sm.can_withdraw("u1") is True
     sm.transition("u1", AccountState.RESTRICTED_WITHDRAWAL, "L1", "R1")

@@ -116,6 +116,15 @@ def _apply_l2_verdict(target_id: str, target_state: AccountState, risk_score: in
                 "GEMINI_VERDICT",
                 f"Requires surveillance (risk_score: {risk_score})",
             )
+    elif target_state == AccountState.NORMAL:
+        if current in (AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE):
+            sm.transition(
+                target_id,
+                AccountState.NORMAL,
+                "L2_ANALYSIS",
+                "GEMINI_VERDICT",
+                f"Low-risk auto recovery (risk_score: {risk_score})",
+            )
 
 
 def _withdraw_status(user_id: str) -> tuple[int, str]:
@@ -182,8 +191,13 @@ async def withdraw(req: WithdrawRequest):
 @app.post("/api/v1/users/{user_id}/release")
 async def release_user(user_id: str):
     current = sm.get_or_create(user_id)
-    if current != AccountState.UNDER_SURVEILLANCE:
-        raise HTTPException(400, f"Only UNDER_SURVEILLANCE accounts can be released (current: {current.value})")
+    releasable_states = {AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE}
+    if current not in releasable_states:
+        raise HTTPException(
+            400,
+            "Only RESTRICTED_WITHDRAWAL or UNDER_SURVEILLANCE accounts can be released "
+            f"(current: {current.value})",
+        )
     ok = sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
     if not ok:
         raise HTTPException(500, "State transition failed")
