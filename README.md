@@ -1,157 +1,149 @@
-# Susanoh
+# Susanoh (スサノヲ)
 
-AI駆動型 経済圏防衛ミドルウェア — ゲーム内不正取引をリアルタイムで検知・隔離するAPI
+> **[Status: Prototype / Beta]**
+> 本プロジェクトは現在プロトタイプ段階であり、プロダクション運用に向けたアーキテクチャ設計（[docs/SPEC.md](docs/SPEC.md)）と実装計画（[docs/PLAN.md](docs/PLAN.md)）を策定中です。
+> 現行実装はデモ用のインメモリ構成で動作します。
 
-## 概要
+**AI駆動型 経済圏防衛ミドルウェア — ゲーム内不正取引をリアルタイムで検知・隔離・監査**
 
-Susanoh は、オンラインゲーム経済圏の不正取引（RMT・資金洗浄）対策を、ゲームサーバーからのイベント送信だけで導入できる開発者向けミドルウェアです。
+Susanoh は、オンラインゲーム経済圏におけるRMT（リアルマネートレーディング）、資金洗浄、Bot活動などの不正取引を、ゲームサーバーからのイベント送信だけで導入できる開発者向けセキュリティミドルウェアです。
 
-**コアの仕組み:**
+---
 
-- **L1 高速ルール判定** — 5分スライディングウィンドウで即時検知
-- **L2 Gemini 文脈判定** — 構造化出力で誤検知を抑制し、判定根拠を提示
-- **ハニーポット制御** — 入金は許可、出金のみブロック（業者に気づかせない）
+## 主な機能 (Target Architecture)
 
-## セットアップ
+以下の機能は、プロダクション版での実現を目指すターゲット仕様です。（現行プロトタイプでは一部簡略化されています）
+
+- **🛡️ L1 高速ルール判定 (Real-time Screening)**
+  Redisを用いたスライディングウィンドウにより、イベント受信から50ms以内に不審な動きを検知し、即座に一次対応を行います。
+  *(Current: Pythonインメモリ実装)*
+
+- **🧠 L2 Gemini 文脈判定 (Contextual Analysis)**
+  Google Gemini API を活用し、チャットログや取引パターンから「なぜ不正と疑われるか」の文脈を解析。構造化された監査レポート（判定理由）を提供します。
+
+- **🍯 ハニーポット制御 (Dynamic State Machine)**
+  疑わしいアカウントに対し、即座にBANするのではなく「出金のみをブロック」するステートへ遷移。業者の活動を泳がせつつ、経済圏からの資産流出を確実に阻止します。
+  *(Current: 手動解除が必要な一部フローあり)*
+
+- **📊 統合ダッシュボード (Observability)**
+  資金フローの可視化グラフ、リアルタイム監査ログ、手動介入インターフェースを備えた管理画面を提供します。
+
+---
+
+## アーキテクチャ
+
+Susanoh は、スケールアウト可能なマイクロサービスアーキテクチャへの移行を進めています。
+
+### Target Architecture (Production Goal)
+
+```mermaid
+graph TD
+    GameServer -->|HTTP/REST| APIGateway[FastAPI Gateway]
+    APIGateway -->|Events| L1[L1 Screening Engine]
+    L1 -->|State| Redis[(Redis State Store)]
+    L1 -->|Async Task| Queue[Task Queue]
+    Queue --> Worker[L2 Analysis Worker]
+    Worker -->|Prompt| LLM[Gemini API]
+    APIGateway -->|Logs| DB[(PostgreSQL)]
+    Dashboard -->|Query| APIGateway
+```
+
+### Current Implementation (Prototype)
+
+- **Backend**: FastAPI (Single Process)
+- **State Store**: In-Memory Python Dicts (No Redis/DB required)
+- **AI Engine**: Google Gemini API (Direct Call)
+- **Frontend**: React, TypeScript, Vite
+
+---
+
+## クイックスタート (開発環境)
+
+DBやRedisなしで即座に動作確認が可能です。
 
 ### 前提条件
 
 - Python 3.11+
 - Node.js 18+
-- (任意) Google AI Studio API Key
+- Google AI Studio API Key
 
-### バックエンド
+### 1. バックエンド構築
 
 ```bash
+# リポジトリのクローン
+git clone <repository_url>
 cd susanoh
+
+# 仮想環境の作成と依存関係のインストール
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
+
+# 環境変数の設定
+export GEMINI_API_KEY=<your_api_key>
+# (Optional) モデル指定
+export GEMINI_MODEL=gemini-2.0-flash
+
+# サーバー起動 (開発モード)
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### フロントエンド
+### 2. フロントエンド構築
 
 ```bash
 cd frontend
 npm install
-```
 
-### 環境変数（任意）
-
-```bash
-export GEMINI_API_KEY=<your-api-key>
-export GEMINI_MODEL=gemini-2.5-flash
-```
-
-> APIキー未設定でもローカルフォールバック裁定で動作します。
-
-## 起動方法
-
-### バックエンド起動
-
-```bash
-source .venv/bin/activate
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-### フロントエンド起動
-
-```bash
-cd frontend
+# 開発サーバー起動
 npm run dev
 ```
 
-ブラウザで http://localhost:5173 を開く。
+ブラウザで `http://localhost:5173` を開き、ダッシュボードにアクセスします。
 
-## デモ実行手順
+---
 
-1. バックエンドとフロントエンドを起動
-2. ダッシュボードの「Normal」ボタンで正常トラフィックを投入 → 全員 NORMAL
-3. 「Smurfing」ボタンでスマーフィングパターンを注入 → 星型グラフが出現、ターゲットが黄→赤に遷移
-4. アカウント管理テーブルで「出金テスト」→ 423 Locked を確認
-5. AI監査レポートで Gemini の判定根拠（reasoning）を確認
-6. 「Start Stream」で継続ストリーミングデモ
+## API リファレンス
 
-## テスト実行
+### Authentication (Target Plan)
+プロダクション版では `X-API-KEY` ヘッダーによる認証を予定していますが、**現行プロトタイプでは認証なし**でアクセス可能です。
 
-```bash
-source .venv/bin/activate
-python3 -m pytest tests/ -v
-```
-
-## API一覧
+### Endpoints (Implemented)
 
 | メソッド | エンドポイント | 説明 |
 |---|---|---|
-| POST | `/api/v1/events` | イベント受信 + L1スクリーニング |
-| GET | `/api/v1/events/recent` | 直近イベント一覧 |
-| GET | `/api/v1/users` | ユーザー状態一覧 |
-| GET | `/api/v1/users/{user_id}` | ユーザー状態照会 |
-| POST | `/api/v1/withdraw` | 出金リクエスト |
-| POST | `/api/v1/users/{user_id}/release` | 手動解除 |
-| GET | `/api/v1/stats` | 統計情報 |
-| GET | `/api/v1/transitions` | 遷移ログ |
-| GET | `/api/v1/graph` | 資金フローグラフデータ |
-| POST | `/api/v1/analyze` | L2分析実行 |
-| GET | `/api/v1/analyses` | 分析結果一覧 |
-| POST | `/api/v1/demo/scenario/{name}` | デモシナリオ注入 |
-| POST | `/api/v1/demo/start` | ストリーミング開始 |
-| POST | `/api/v1/demo/stop` | ストリーミング停止 |
+| `POST` | `/api/v1/events` | ゲームイベント受信 + L1スクリーニング |
+| `GET` | `/api/v1/events/recent` | 直近イベント一覧 (Dashboard用) |
+| `GET` | `/api/v1/users` | 全ユーザー状態一覧 |
+| `GET` | `/api/v1/users/{user_id}` | 特定ユーザー状態照会 |
+| `POST` | `/api/v1/withdraw` | 出金リクエスト（ステートに基づく制御） |
+| `POST` | `/api/v1/users/{user_id}/release` | アカウントの手動ロック解除 |
+| `GET` | `/api/v1/stats` | 統計メトリクス取得 |
+| `GET` | `/api/v1/graph` | 資金フローグラフデータ取得 |
+| `POST` | `/api/v1/analyze` | 手動L2分析トリガー |
+| `GET` | `/api/v1/analyses` | AI監査レポート一覧 |
+| `GET` | `/api/v1/transitions` | 状態遷移ログ一覧 |
+| `POST` | `/api/v1/demo/scenario/{name}` | デモシナリオ注入 (`normal`, `rmt-smurfing` etc.) |
+| `POST` | `/api/v1/demo/start` | デモストリーミング開始 |
+| `POST` | `/api/v1/demo/stop` | デモストリーミング停止 |
 
-## 使用技術・外部API
+詳細な仕様（将来像を含む）は [docs/SPEC.md](docs/SPEC.md) を参照してください。
 
-| カテゴリ | 技術 |
-|---|---|
-| バックエンド | Python, FastAPI, Pydantic, uvicorn |
-| フロントエンド | React, TypeScript, Vite, TailwindCSS |
-| AI分析 | Google Gemini API (gemini-2.0-flash) |
-| グラフ可視化 | react-force-graph-2d (D3 force-directed) |
-| HTTP通信 | httpx |
+---
 
-## プロジェクト構成
+## 開発ロードマップ
 
-```text
-susanoh/
-├── backend/
-│   ├── main.py            # FastAPI エントリポイント
-│   ├── models.py          # Pydantic データモデル
-│   ├── state_machine.py   # ステートマシン
-│   ├── l1_screening.py    # L1 ルールエンジン
-│   ├── l2_gemini.py       # L2 Gemini 解析エンジン
-│   ├── mock_server.py     # Mock データ生成
-│   └── requirements.txt
-├── frontend/
-│   └── src/
-│       ├── App.tsx
-│       ├── api.ts
-│       └── components/
-│           ├── StatsCards.tsx
-│           ├── EventStream.tsx
-│           ├── NetworkGraph.tsx
-│           ├── AuditReport.tsx
-│           └── AccountTable.tsx
-├── tests/
-│   ├── test_state_machine.py
-│   ├── test_l1_screening.py
-│   ├── test_l2_fallback.py
-│   └── test_withdraw_api.py
-├── docs/
-│   ├── SPEC.md
-│   ├── RULE.md
-│   ├── PLAN.md
-│   └── PROMPT.md
-└── README.md
-```
+プロダクション運用に向けたロードマップは [docs/PLAN.md](docs/PLAN.md) で管理されています。
 
-## ハッカソン適合
+- [x] **Prototype**: L1 ルールエンジン & ステートマシン (In-Memory)
+- [x] **Prototype**: L2 Gemini 分析統合
+- [x] **Prototype**: リアルタイムダッシュボード
+- [ ] **Phase 1**: PostgreSQL 永続化 & Redis 導入
+- [ ] **Phase 1**: 認証・認可基盤 (API Key / JWT)
+- [ ] **Phase 1**: 自動ステート復旧ロジック (L2 White Verdict)
+- [ ] **Phase 2**: CI/CD & Docker 化
 
-- **対象ステートメント**: ステートメント2（ゲーム開発ツール強化）
-- **デモ方針**: スライドなし、実稼働画面 + API実行 + 状態遷移ログを直接提示
-- **DQ回避**: ハッカソン期間中に実装した範囲と将来構想を明確に分離
+---
 
-### 将来構想（今回未実装）
+## ライセンス
 
-- Rust製高速ゲートウェイへの置換
-- PostgreSQL永続DB・監査PDFエクスポート
-- 認証・マルチテナント対応
-- 実ゲームSDK化
+[MIT License](LICENSE)
