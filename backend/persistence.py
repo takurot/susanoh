@@ -32,7 +32,7 @@ class EventLogRecord(Base):
     __tablename__ = "event_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    event_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -127,15 +127,20 @@ class PersistenceStore:
         now = datetime.now(UTC)
 
         with self.session() as session:
-            session.query(AuditLogRecord).delete()
-            session.query(AnalysisResultRecord).delete()
-            session.query(EventLogRecord).delete()
-            session.query(UserRecord).delete()
-
+            # Upsert users
             for user_id, state in sm.accounts.items():
-                session.add(UserRecord(user_id=user_id, state=state.value, updated_at=now))
+                record = session.get(UserRecord, user_id)
+                if record:
+                    record.state = state.value
+                    record.updated_at = now
+                else:
+                    session.add(UserRecord(user_id=user_id, state=state.value, updated_at=now))
 
+            # Append only new events
+            existing_event_ids = {r[0] for r in session.query(EventLogRecord.event_id).all()}
             for event, screening in l1.recent_events:
+                if event.event_id in existing_event_ids:
+                    continue
                 session.add(
                     EventLogRecord(
                         event_id=event.event_id,
@@ -154,7 +159,15 @@ class PersistenceStore:
                     )
                 )
 
+            # Append only new analysis results (using created_at heuristic or better uniquely identify them)
+            # For simplicity in this snapshot model, we'll append all if we can't easily dedup, 
+            # but ideally analysis results should have an ID.
+            # L2 analysis results in the list are the full history for the session.
+            # We skip existing ones by comparing target_id and reasoning (rough but works for prototype).
+            existing_analyses = {(r.target_id, r.reasoning) for r in session.query(AnalysisResultRecord).all()}
             for analysis in l2_results:
+                if (analysis.target_id, analysis.reasoning) in existing_analyses:
+                    continue
                 session.add(
                     AnalysisResultRecord(
                         target_id=analysis.target_id,
@@ -169,7 +182,13 @@ class PersistenceStore:
                     )
                 )
 
+            # Append only new transitions
+            existing_transitions = {
+                (r.user_id, r.timestamp, r.to_state) for r in session.query(AuditLogRecord).all()
+            }
             for log in sm.transition_logs:
+                if (log.user_id, log.timestamp, log.to_state.value) in existing_transitions:
+                    continue
                 session.add(
                     AuditLogRecord(
                         user_id=log.user_id,
@@ -183,4 +202,5 @@ class PersistenceStore:
                 )
 
             session.commit()
+
 
