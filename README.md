@@ -83,6 +83,8 @@ pip install -r backend/requirements.txt
 export GEMINI_API_KEY=<your_api_key>
 # (Optional) モデル指定
 export GEMINI_MODEL=gemini-2.0-flash
+# (Optional) API Key認証を有効化する場合（カンマ区切りで複数指定可）
+export SUSANOH_API_KEYS=dev-key
 
 # サーバー起動 (開発モード)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
@@ -104,8 +106,13 @@ npm run dev
 
 ## API リファレンス
 
-### Authentication (Target Plan)
-プロダクション版では `X-API-KEY` ヘッダーによる認証を予定していますが、**現行プロトタイプでは認証なし**でアクセス可能です。
+### Authentication (Current Behavior)
+- `SUSANOH_API_KEYS` が未設定: **認証なし**（従来どおり）
+- `SUSANOH_API_KEYS` が設定済み: `/api/v1/*` で `X-API-KEY` ヘッダー必須
+
+```bash
+curl -H "X-API-KEY: dev-key" http://localhost:8000/api/v1/stats
+```
 
 ### Endpoints (Implemented)
 
@@ -138,7 +145,9 @@ npm run dev
 - [x] **Prototype**: L2 Gemini 分析統合
 - [x] **Prototype**: リアルタイムダッシュボード
 - [ ] **Phase 1**: PostgreSQL 永続化 & Redis 導入
-- [ ] **Phase 1**: 認証・認可基盤 (API Key / JWT)
+- [~] **Phase 1**: 認証・認可基盤 (API Key / JWT)
+  - Service API Key (`X-API-KEY` middleware): 実装済み
+  - JWT / RBAC: 未実装
 - [x] **Phase 1**: 自動ステート復旧ロジック (L2 White Verdict)
 - [ ] **Phase 2**: CI/CD & Docker 化
 

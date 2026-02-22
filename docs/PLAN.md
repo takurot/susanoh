@@ -21,6 +21,7 @@
 
 ### 1.2 認証・認可基盤
 - **Service Authentication**: ゲームサーバー向けAPI Key認証 (`X-API-KEY`) の実装と管理機能（Middleware実装）
+  - Status: プロトタイプ実装済み（`SUSANOH_API_KEYS` 設定時に `/api/v1/*` へ適用、2026-02-22）
 - **User Authentication**: ダッシュボード向けJWT認証 (OAuth2 Password Bearer)
 - **RBAC**: `Admin`, `Operator`, `Viewer` ロールの実装
 
