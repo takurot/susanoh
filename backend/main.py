@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     await redis_client.close()
 
 app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
+app.state.arq_pool = None
 logger = logging.getLogger(__name__)
 
 app.add_middleware(
