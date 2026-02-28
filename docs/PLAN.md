@@ -44,7 +44,7 @@
 
 ### 1.5.1 テスト基盤の整備
 - [x] **Coverage Analysis**: `pytest-cov` を導入し、バックエンドのカバレッジを可視化。
-- [ ] **Frontend Testing**: Playwright を導入し、ダッシュボードの主要導線の E2E テストを自動化。
+- [x] **Frontend Testing**: Playwright を導入し、ダッシュボードの主要導線の E2E テストを自動化。
 
 ### 1.5.2 信頼性の検証
 - [ ] **Concurrency Testing**: 大量イベント同時受信時、およびステート遷移時の Race Condition 検証。
