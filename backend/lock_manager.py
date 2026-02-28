@@ -31,7 +31,8 @@ class LockManager:
             async with lock:
                 yield
         else:
-            if user_id not in self._local_locks:
-                self._local_locks[user_id] = asyncio.Lock()
-            async with self._local_locks[user_id]:
+            # Use setdefault to avoid race where two coroutines both create
+            # separate Lock instances for the same user_id.
+            lock = self._local_locks.setdefault(user_id, asyncio.Lock())
+            async with lock:
                 yield

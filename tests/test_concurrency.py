@@ -1,9 +1,22 @@
 import asyncio
+import os
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 
 from backend.main import app, reset_runtime_state
 from backend.models import AccountState
+
+
+async def _get_jwt_token(client: AsyncClient) -> str:
+    """Obtain a JWT token for admin user to access RBAC-protected endpoints."""
+    resp = await client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin", "password": "password123"},
+    )
+    assert resp.status_code == 200, f"Failed to get JWT token: {resp.text}"
+    return resp.json()["access_token"]
+
 
 @pytest.mark.asyncio
 async def test_concurrent_event_processing():
@@ -13,8 +26,7 @@ async def test_concurrent_event_processing():
     """
     await reset_runtime_state()
     user_id = "target_concurrency_01"
-    
-    import os
+
     api_key = os.environ.get("SUSANOH_API_KEYS", "test").split(",")[0].strip() or "test"
     headers = {"X-API-KEY": api_key}
 
@@ -41,25 +53,29 @@ async def test_concurrent_event_processing():
                 "risk_score": 0
             }
             tasks.append(client.post("/api/v1/events", json=payload))
-        
+
         responses = await asyncio.gather(*tasks)
-    
+
     # Assert they all succeeded
     for resp in responses:
         assert resp.status_code == 200, f"Event post failed: {resp.text}"
-        
-    # Check the final state
+
+    # RBAC-protected endpoints need JWT auth
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as client:
-        resp = await client.get(f"/api/v1/users/{user_id}")
+        token = await _get_jwt_token(client)
+        auth_headers = {**headers, "Authorization": f"Bearer {token}"}
+
+        # Check the final state
+        resp = await client.get(f"/api/v1/users/{user_id}", headers=auth_headers)
         assert resp.status_code == 200
         assert resp.json()["state"] == AccountState.RESTRICTED_WITHDRAWAL.value
-        
+
         # Check transitions
-        resp_trans = await client.get("/api/v1/transitions")
+        resp_trans = await client.get("/api/v1/transitions", headers=auth_headers)
         assert resp_trans.status_code == 200
-        
+
         transitions = [t for t in resp_trans.json() if t["user_id"] == user_id]
-        
+
         # There should only be exactly ONE transition for the target user from NORMAL to RESTRICTED_WITHDRAWAL
         assert len(transitions) == 1
         assert transitions[0]["from_state"] == AccountState.NORMAL.value

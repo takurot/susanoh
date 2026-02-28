@@ -130,10 +130,13 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
     `schedule_l2=False` is used by showcase flow to keep L2 execution deterministic:
     the endpoint runs one explicit synchronous L2 call and returns the final summary.
     """
+    # Lock on target_id only: actor_id is read-only (get_or_create) so
+    # the race window is benign.  Locking both would require ordered
+    # acquisition to avoid deadlocks.
     async with lock_manager.acquire_user_lock(event.target_id):
         await sm.get_or_create(event.actor_id)
         await sm.get_or_create(event.target_id)
-    
+
         result = await l1.screen(event)
     
         if result.screened and result.recommended_action:
@@ -146,7 +149,7 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
                     ",".join(result.triggered_rules),
                     f"L1 rule triggered: {result.triggered_rules}",
                 )
-    
+
         if schedule_l2 and (result.needs_l2 or (
             result.screened
             and await sm.get_or_create(event.target_id) != AccountState.NORMAL
@@ -159,7 +162,7 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
                 await app.state.arq_pool.enqueue_job("analyze_l2_task", analysis_req)
             else:
                 asyncio.create_task(_run_l2(analysis_req))
-    
+
         await _persist_runtime_snapshot()
         return {"screened": result.screened, "triggered_rules": result.triggered_rules}
 
