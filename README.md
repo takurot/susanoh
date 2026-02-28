@@ -115,7 +115,8 @@ npm run dev
 
 ### Authentication (Current Behavior)
 - `SUSANOH_API_KEYS` が未設定: **認証なし**（従来どおり）
-- `SUSANOH_API_KEYS` が設定済み: `/api/v1/*` で `X-API-KEY` ヘッダー必須
+- `SUSANOH_API_KEYS` が設定済み: ゲームサーバー用APIエンドポイントで `X-API-KEY` ヘッダー必須
+- ダッシュボードエンドポイント全体がJWTベースの `OAuth2 Password Bearer` 認証とRBAC（Admin, Operator, Viewer）で保護されています。モックユーザー: `admin`, `operator`, `viewer` (パスワードは共通で `password123`)
 
 ```bash
 curl -H "X-API-KEY: dev-key" http://localhost:8000/api/v1/stats
@@ -154,9 +155,9 @@ curl -H "X-API-KEY: dev-key" http://localhost:8000/api/v1/stats
 - [x] **Phase 1**: PostgreSQL 永続化 & Redis 導入
   - PostgreSQLスナップショット永続化（SQLAlchemy）: 実装済み
   - Redis state store: 実装済み (2026-02-22)
-- [~] **Phase 1**: 認証・認可基盤 (API Key / JWT)
+- [x] **Phase 1**: 認証・認可基盤 (API Key / JWT)
   - Service API Key (`X-API-KEY` middleware): 実装済み
-  - JWT / RBAC: 未実装
+  - JWT / RBAC: 実装済み
 - [x] **Phase 1**: 自動ステート復旧ロジック (L2 White Verdict)
 - [ ] **Phase 2**: CI/CD & Docker 化
 

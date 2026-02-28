@@ -7,9 +7,11 @@ from typing import Optional
 
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from datetime import timedelta
 
 from backend.models import (
     AccountState,
@@ -23,6 +25,17 @@ from backend.l2_gemini import L2Engine
 from backend.mock_server import MockGameServer, DemoStreamer
 from backend.persistence import PersistenceStore
 from backend.redis_client import RedisClient
+from backend.auth import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    MOCK_USERS_DB,
+    Role,
+    User,
+    create_access_token,
+    get_current_user,
+    get_user,
+    require_roles,
+    verify_password,
+)
 
 from contextlib import asynccontextmanager
 
@@ -176,6 +189,25 @@ async def root():
     return {"status": "ok", "service": "Susanoh"}
 
 
+# --- Auth ---
+@app.post("/api/v1/auth/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user_dict = get_user(MOCK_USERS_DB, form_data.username)
+    if not user_dict or not verify_password(form_data.password, user_dict["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user_dict["username"], "role": user_dict["role"].value},
+        expires_delta=access_token_expires,
+    )
+    return {"access_token": access_token, "token_type": "bearer", "role": user_dict["role"].value}
+
+
 # --- Events ---
 @app.post("/api/v1/events")
 async def post_event(event: GameEventLog):
@@ -188,7 +220,7 @@ async def get_recent_events(limit: int = Query(default=20, le=200)):
 
 
 # --- Users ---
-@app.get("/api/v1/users")
+@app.get("/api/v1/users", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_users(state: Optional[str] = None):
     state_filter = None
     if state:
@@ -199,8 +231,8 @@ async def get_users(state: Optional[str] = None):
     return await sm.get_all_users(state_filter)
 
 
-@app.get("/api/v1/users/{user_id}")
-async def get_user(user_id: str):
+@app.get("/api/v1/users/{user_id}", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
+async def get_user_by_id(user_id: str):
     st = await sm.get_or_create(user_id)
     return {"user_id": user_id, "state": st.value}
 
@@ -216,7 +248,7 @@ async def withdraw(req: WithdrawRequest):
 
 
 # --- Release ---
-@app.post("/api/v1/users/{user_id}/release")
+@app.post("/api/v1/users/{user_id}/release", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR]))])
 async def release_user(user_id: str):
     current = await sm.get_or_create(user_id)
     releasable_states = {AccountState.RESTRICTED_WITHDRAWAL, AccountState.UNDER_SURVEILLANCE}
@@ -234,7 +266,7 @@ async def release_user(user_id: str):
 
 
 # --- Stats ---
-@app.get("/api/v1/stats")
+@app.get("/api/v1/stats", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_stats():
     stats = await sm.get_stats()
     stats["l1_flags"] = l1.l1_flag_count
@@ -244,13 +276,13 @@ async def get_stats():
 
 
 # --- Transitions ---
-@app.get("/api/v1/transitions")
+@app.get("/api/v1/transitions", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_transitions(limit: int = Query(default=50, le=200)):
     return await sm.get_transitions(limit)
 
 
 # --- Graph ---
-@app.get("/api/v1/graph")
+@app.get("/api/v1/graph", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_graph():
     # Resolve node states from Redis if available (Finding 4)
     recent = await l1.get_recent_events(limit=200)
@@ -263,7 +295,7 @@ async def get_graph():
 
 
 # --- L2 Analyze ---
-@app.post("/api/v1/analyze")
+@app.post("/api/v1/analyze", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR]))])
 async def analyze(event: GameEventLog):
     current_state = await sm.get_or_create(event.target_id)
     result = await l1.screen(event)
@@ -275,13 +307,13 @@ async def analyze(event: GameEventLog):
     return verdict
 
 
-@app.get("/api/v1/analyses")
+@app.get("/api/v1/analyses", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_analyses(limit: int = Query(default=20, le=100)):
     return l2.get_analyses(limit)
 
 
 # --- Demo ---
-@app.post("/api/v1/demo/scenario/{name}")
+@app.post("/api/v1/demo/scenario/{name}", dependencies=[Depends(require_roles([Role.ADMIN]))])
 async def run_scenario(name: str):
     if name == "normal":
         events = [mock.generate_normal_event() for _ in range(10)]
@@ -299,7 +331,7 @@ async def run_scenario(name: str):
     return {"scenario": name, "events_sent": len(events), "results": results}
 
 
-@app.post("/api/v1/demo/showcase/smurfing", response_model=ShowcaseResult)
+@app.post("/api/v1/demo/showcase/smurfing", response_model=ShowcaseResult, dependencies=[Depends(require_roles([Role.ADMIN]))])
 async def run_showcase_smurfing():
     target_user = "user_boss_01"
     events = mock.generate_smurfing_events()
@@ -358,7 +390,7 @@ async def run_showcase_smurfing():
     )
 
 
-@app.post("/api/v1/demo/start")
+@app.post("/api/v1/demo/start", dependencies=[Depends(require_roles([Role.ADMIN]))])
 async def demo_start():
     global streamer
     if streamer and streamer.running:
@@ -368,7 +400,7 @@ async def demo_start():
     return {"status": "started"}
 
 
-@app.post("/api/v1/demo/stop")
+@app.post("/api/v1/demo/stop", dependencies=[Depends(require_roles([Role.ADMIN]))])
 async def demo_stop():
     global streamer
     if streamer:

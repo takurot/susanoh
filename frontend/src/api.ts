@@ -1,20 +1,56 @@
 const BASE = '/api/v1';
 
+export const setToken = (token: string, role: string) => {
+  localStorage.setItem('susanoh_token', token);
+  localStorage.setItem('susanoh_role', role);
+};
+
+export const getToken = () => localStorage.getItem('susanoh_token');
+export const getRole = () => localStorage.getItem('susanoh_role');
+export const removeToken = () => {
+  localStorage.removeItem('susanoh_token');
+  localStorage.removeItem('susanoh_role');
+};
+
+const getAuthHeaders = (): Record<string, string> => {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { ...getAuthHeaders() }
+  });
+  if (res.status === 401) {
+    removeToken();
+    window.dispatchEvent(new Event('auth-failed'));
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+async function post<T>(path: string, body?: unknown, isUrlEncoded = false): Promise<T> {
+  const headers: Record<string, string> = { ...getAuthHeaders() };
+  if (body && !isUrlEncoded) {
+    headers['Content-Type'] = 'application/json';
+  } else if (isUrlEncoded) {
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
+    headers,
+    body: body ? (isUrlEncoded ? body as string : JSON.stringify(body)) : undefined,
   });
+
+  if (res.status === 401) {
+    removeToken();
+    window.dispatchEvent(new Event('auth-failed'));
+  }
+
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    return { ...data, _status: res.status } as T;
+    throw new Error(data.detail || `${res.status} ${res.statusText}`);
   }
   return res.json();
 }
@@ -105,6 +141,13 @@ export interface ShowcaseResult {
   latest_reasoning?: string | null;
   analysis_error?: string | null;
 }
+
+export const login = async (username: string, password: string): Promise<{ access_token: string, token_type: string, role: string }> => {
+  const params = new URLSearchParams();
+  params.append('username', username);
+  params.append('password', password);
+  return post('/auth/token', params.toString(), true);
+};
 
 export const fetchStats = () => get<Stats>('/stats');
 export const fetchTransitions = (limit = 50) => get<TransitionLog[]>(`/transitions?limit=${limit}`);

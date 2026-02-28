@@ -9,3 +9,6 @@ arq
 fakeredis
 pytest
 pytest-asyncio
+pyjwt
+passlib[bcrypt]
+python-multipart
