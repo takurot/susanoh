@@ -95,12 +95,18 @@ def _local_fallback(request: AnalysisRequest, reason: str) -> ArbitrationResult:
     )
 
 
-class L2Engine:
-    REDIS_KEY = "susanoh:l2_results"
+from typing import TYPE_CHECKING, Optional
+from redis.exceptions import RedisError
 
-    def __init__(self, redis_client=None) -> None:
-        self.analysis_results: list[ArbitrationResult] = []
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+class L2Engine:
+    REDIS_KEY = "susanoh:analyses"
+
+    def __init__(self, redis_client: Optional[Redis] = None) -> None:
         self.redis = redis_client
+        self.analysis_results: list[ArbitrationResult] = []
 
     async def reset(self) -> None:
         self.analysis_results.clear()
@@ -115,7 +121,8 @@ class L2Engine:
         self.analysis_results.append(result)
         if self.redis:
             try:
-                await self.redis.rpush(self.REDIS_KEY, result.model_dump_json())
+                await self.redis.lpush(self.REDIS_KEY, result.model_dump_json())
+                await self.redis.ltrim(self.REDIS_KEY, 0, 199)
             except Exception as e:
                 logger.warning("Redis L2 store failed: %s", e)
 
@@ -221,9 +228,9 @@ class L2Engine:
     async def get_analyses(self, limit: int = 20) -> list[ArbitrationResult]:
         if self.redis:
             try:
-                raw = await self.redis.lrange(self.REDIS_KEY, -limit, -1)
+                raw_analyses = await self.redis.lrange(self.REDIS_KEY, 0, limit - 1)
                 results = []
-                for item in reversed(raw):
+                for item in raw_analyses:
                     try:
                         results.append(ArbitrationResult.model_validate_json(item))
                     except Exception:
