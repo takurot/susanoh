@@ -13,11 +13,12 @@ export default function AccountTable({ users, onRefresh }: { users: UserInfo[]; 
   const [msg, setMsg] = useState('');
 
   const handleWithdraw = async (uid: string) => {
-    const res = await tryWithdraw(uid, 1000);
-    if (res._status) {
-      setMsg(`${uid}: ${res.detail} (${res._status})`);
-    } else {
+    try {
+      await tryWithdraw(uid, 1000);
       setMsg(`${uid}: Withdrawal successful`);
+    } catch (e) {
+      const error = e as Error;
+      setMsg(`${uid}: ${error.message}`);
     }
     setTimeout(() => setMsg(''), 3000);
   };

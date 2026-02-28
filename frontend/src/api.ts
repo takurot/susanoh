@@ -50,7 +50,7 @@ async function post<T>(path: string, body?: unknown, isUrlEncoded = false): Prom
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    return { ...data, _status: res.status } as T;
+    throw new Error(data.detail || `${res.status} ${res.statusText}`);
   }
   return res.json();
 }

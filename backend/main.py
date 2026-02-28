@@ -232,7 +232,7 @@ async def get_users(state: Optional[str] = None):
 
 
 @app.get("/api/v1/users/{user_id}", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
-async def get_user(user_id: str):
+async def get_user_by_id(user_id: str):
     st = await sm.get_or_create(user_id)
     return {"user_id": user_id, "state": st.value}
 

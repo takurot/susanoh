@@ -8,10 +8,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
+from passlib.context import CryptContext
+
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "susanoh-secret-key-dev-only-change-in-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
 
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 class Role(str, Enum):
@@ -28,23 +31,23 @@ class User(BaseModel):
 MOCK_USERS_DB = {
     "admin": {
         "username": "admin",
-        "hashed_password": "password123",
+        "hashed_password": pwd_context.hash("password123"),
         "role": Role.ADMIN,
     },
     "operator": {
         "username": "operator",
-        "hashed_password": "password123",
+        "hashed_password": pwd_context.hash("password123"),
         "role": Role.OPERATOR,
     },
     "viewer": {
         "username": "viewer",
-        "hashed_password": "password123",
+        "hashed_password": pwd_context.hash("password123"),
         "role": Role.VIEWER,
     },
 }
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return plain_password == hashed_password
+    return pwd_context.verify(plain_password, hashed_password)
 
 def get_user(db: dict, username: str) -> Optional[dict]:
     if username in db:
