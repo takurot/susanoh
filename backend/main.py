@@ -24,6 +24,7 @@ from backend.l1_screening import L1Engine
 from backend.l2_gemini import L2Engine
 from backend.mock_server import MockGameServer, DemoStreamer
 from backend.persistence import PersistenceStore
+from backend.lock_manager import LockManager
 from backend.redis_client import RedisClient
 from backend.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -71,6 +72,7 @@ redis_client = RedisClient()
 sm = StateMachine(redis_client.get_client())
 l1 = L1Engine(redis_client.get_client())
 l2 = L2Engine(redis_client=redis_client.get_client())
+lock_manager = LockManager(redis_client.get_client())
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
 persistence_store = PersistenceStore.from_env()
@@ -128,37 +130,41 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
     `schedule_l2=False` is used by showcase flow to keep L2 execution deterministic:
     the endpoint runs one explicit synchronous L2 call and returns the final summary.
     """
-    await sm.get_or_create(event.actor_id)
-    await sm.get_or_create(event.target_id)
+    # Lock on target_id only: actor_id is read-only (get_or_create) so
+    # the race window is benign.  Locking both would require ordered
+    # acquisition to avoid deadlocks.
+    async with lock_manager.acquire_user_lock(event.target_id):
+        await sm.get_or_create(event.actor_id)
+        await sm.get_or_create(event.target_id)
 
-    result = await l1.screen(event)
+        result = await l1.screen(event)
+    
+        if result.screened and result.recommended_action:
+            current = await sm.get_or_create(event.target_id)
+            if current == AccountState.NORMAL:
+                await sm.transition(
+                    event.target_id,
+                    AccountState.RESTRICTED_WITHDRAWAL,
+                    "L1_SCREENING",
+                    ",".join(result.triggered_rules),
+                    f"L1 rule triggered: {result.triggered_rules}",
+                )
 
-    if result.screened and result.recommended_action:
-        current = await sm.get_or_create(event.target_id)
-        if current == AccountState.NORMAL:
-            await sm.transition(
-                event.target_id,
-                AccountState.RESTRICTED_WITHDRAWAL,
-                "L1_SCREENING",
-                ",".join(result.triggered_rules),
-                f"L1 rule triggered: {result.triggered_rules}",
+        if schedule_l2 and (result.needs_l2 or (
+            result.screened
+            and await sm.get_or_create(event.target_id) != AccountState.NORMAL
+        )):
+            current_state = await sm.get_or_create(event.target_id)
+            analysis_req = await l1.build_analysis_request(
+                event.target_id, event, result.triggered_rules, current_state
             )
+            if hasattr(app.state, "arq_pool") and app.state.arq_pool:
+                await app.state.arq_pool.enqueue_job("analyze_l2_task", analysis_req)
+            else:
+                asyncio.create_task(_run_l2(analysis_req))
 
-    if schedule_l2 and (result.needs_l2 or (
-        result.screened
-        and await sm.get_or_create(event.target_id) != AccountState.NORMAL
-    )):
-        current_state = await sm.get_or_create(event.target_id)
-        analysis_req = await l1.build_analysis_request(
-            event.target_id, event, result.triggered_rules, current_state
-        )
-        if hasattr(app.state, "arq_pool") and app.state.arq_pool:
-            await app.state.arq_pool.enqueue_job("analyze_l2_task", analysis_req)
-        else:
-            asyncio.create_task(_run_l2(analysis_req))
-
-    await _persist_runtime_snapshot()
-    return {"screened": result.screened, "triggered_rules": result.triggered_rules}
+        await _persist_runtime_snapshot()
+        return {"screened": result.screened, "triggered_rules": result.triggered_rules}
 
 
 async def _run_l2(analysis_req) -> None:
