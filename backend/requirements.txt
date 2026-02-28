@@ -12,3 +12,4 @@ pytest-asyncio
 pyjwt
 passlib[bcrypt]
 python-multipart
+pytest-cov
