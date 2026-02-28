@@ -70,7 +70,7 @@ app.add_middleware(
 redis_client = RedisClient()
 sm = StateMachine(redis_client.get_client())
 l1 = L1Engine(redis_client.get_client())
-l2 = L2Engine(redis_client.get_client())
+l2 = L2Engine(redis_client=redis_client.get_client())
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
 persistence_store = PersistenceStore.from_env()

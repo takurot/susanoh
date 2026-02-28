@@ -102,6 +102,8 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 class L2Engine:
+    REDIS_KEY = "susanoh:analyses"
+
     def __init__(self, redis_client: Optional[Redis] = None) -> None:
         self.redis = redis_client
         self.analysis_results: list[ArbitrationResult] = []
@@ -110,37 +112,35 @@ class L2Engine:
         self.analysis_results.clear()
         if self.redis:
             try:
-                await self.redis.delete("susanoh:analyses")
-            except RedisError as e:
-                logger.warning("Redis reset failed: %s", e)
+                await self.redis.delete(self.REDIS_KEY)
+            except Exception as e:
+                logger.warning("Redis L2 reset failed: %s", e)
+
+    async def _store_result(self, result: ArbitrationResult) -> None:
+        """Store result in both in-memory list and Redis (if available)."""
+        self.analysis_results.append(result)
+        if self.redis:
+            try:
+                await self.redis.lpush(self.REDIS_KEY, result.model_dump_json())
+                await self.redis.ltrim(self.REDIS_KEY, 0, 199)
+            except Exception as e:
+                logger.warning("Redis L2 store failed: %s", e)
 
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             result = _local_fallback(request, "GEMINI_API_KEY is not set")
-            self.analysis_results.append(result)
+            await self._store_result(result)
             return result
 
         try:
             result = await self._call_gemini(request, api_key)
-            self.analysis_results.append(result)
-            if self.redis:
-                try:
-                    await self.redis.lpush("susanoh:analyses", result.model_dump_json())
-                    await self.redis.ltrim("susanoh:analyses", 0, 199)
-                except RedisError as e:
-                    logger.warning("Redis lpush (gemini) failed: %s", e)
+            await self._store_result(result)
             return result
         except Exception as e:
             logger.warning("Gemini API error: %s — falling back", e)
             result = _local_fallback(request, f"API error: {e}")
-            self.analysis_results.append(result)
-            if self.redis:
-                try:
-                    await self.redis.lpush("susanoh:analyses", result.model_dump_json())
-                    await self.redis.ltrim("susanoh:analyses", 0, 199)
-                except RedisError as e:
-                    logger.warning("Redis lpush (fallback) failed: %s", e)
+            await self._store_result(result)
             return result
 
     async def _call_gemini(self, request: AnalysisRequest, api_key: str) -> ArbitrationResult:
@@ -228,8 +228,14 @@ class L2Engine:
     async def get_analyses(self, limit: int = 20) -> list[ArbitrationResult]:
         if self.redis:
             try:
-                raw_analyses = await self.redis.lrange("susanoh:analyses", 0, limit - 1)
-                return [ArbitrationResult.model_validate_json(item) for item in raw_analyses]
-            except RedisError as e:
-                logger.warning("Redis get_analyses failed: %s. Using in-memory.", e)
+                raw_analyses = await self.redis.lrange(self.REDIS_KEY, 0, limit - 1)
+                results = []
+                for item in raw_analyses:
+                    try:
+                        results.append(ArbitrationResult.model_validate_json(item))
+                    except Exception:
+                        continue
+                return results
+            except Exception as e:
+                logger.warning("Redis L2 get_analyses failed: %s. Using in-memory.", e)
         return list(reversed(self.analysis_results[-limit:]))

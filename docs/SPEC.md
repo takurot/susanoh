@@ -97,7 +97,7 @@ Game Server -> [Load Balancer] -> [API Gateway (FastAPI)]
   - `Operator`: 閲覧、手動解除のみ
   - `Viewer`: 閲覧のみ
 
-> **Note**: 現行プロトタイプでは Service API Key（`SUSANOH_API_KEYS` 設定時の `X-API-KEY` 検証）のみ実装済みです。JWT認証とRBACは未実装です。
+> **Note**: Service API Key（`SUSANOH_API_KEYS` 設定時の `X-API-KEY` 検証）、JWT認証（OAuth2 Password Bearer）、およびRBAC（Admin/Operator/Viewer）は実装済みです。現在はモックユーザーDBを使用しています。
 
 ---
 
