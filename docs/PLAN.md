@@ -43,7 +43,7 @@
 プロダクション移行に向け、テストの自動化とカバレッジの向上を図る。
 
 ### 1.5.1 テスト基盤の整備
-- [ ] **Coverage Analysis**: `pytest-cov` を導入し、バックエンドのカバレッジを可視化。
+- [x] **Coverage Analysis**: `pytest-cov` を導入し、バックエンドのカバレッジを可視化。
 - [ ] **Frontend Testing**: Playwright を導入し、ダッシュボードの主要導線の E2E テストを自動化。
 
 ### 1.5.2 信頼性の検証
