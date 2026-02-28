@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   fetchStats, fetchRecentEvents, fetchAnalyses, fetchGraph, fetchUsers,
   triggerScenario, runShowcaseSmurfing, startDemo, stopDemo,
+  getToken, removeToken,
   type ShowcaseResult,
 } from './api';
 import StatsCards from './components/StatsCards';
@@ -10,10 +11,13 @@ import NetworkGraph from './components/NetworkGraph';
 import AuditReport from './components/AuditReport';
 import AccountTable from './components/AccountTable';
 import IncidentTimeline from './components/IncidentTimeline';
+import { Login } from './components/Login';
 
-function usePolling<T>(fn: () => Promise<T>, interval: number): [T | null, () => void] {
+function usePolling<T>(fn: () => Promise<T>, interval: number, active: boolean = true): [T | null, () => void] {
   const [data, setData] = useState<T | null>(null);
-  const refresh = useCallback(() => { fn().then(setData).catch(() => {}); }, [fn]);
+  const refresh = useCallback(() => {
+    if (active) fn().then(setData).catch(() => { });
+  }, [fn, active]);
   useEffect(() => {
     refresh();
     const id = setInterval(refresh, interval);
@@ -23,11 +27,24 @@ function usePolling<T>(fn: () => Promise<T>, interval: number): [T | null, () =>
 }
 
 export default function App() {
-  const [stats, refreshStats] = usePolling(fetchStats, 3000);
-  const [events, refreshEvents] = usePolling(fetchRecentEvents, 3000);
-  const [analyses, refreshAnalyses] = usePolling(fetchAnalyses, 3000);
-  const [graph, refreshGraph] = usePolling(fetchGraph, 5000);
-  const [users, refreshUsers] = usePolling(fetchUsers, 5000);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
+
+  useEffect(() => {
+    const handleAuthFailed = () => setIsAuthenticated(false);
+    window.addEventListener('auth-failed', handleAuthFailed);
+    return () => window.removeEventListener('auth-failed', handleAuthFailed);
+  }, []);
+
+  const handleLogout = () => {
+    removeToken();
+    setIsAuthenticated(false);
+  };
+
+  const [stats, refreshStats] = usePolling(fetchStats, 3000, isAuthenticated);
+  const [events, refreshEvents] = usePolling(fetchRecentEvents, 3000, isAuthenticated);
+  const [analyses, refreshAnalyses] = usePolling(fetchAnalyses, 3000, isAuthenticated);
+  const [graph, refreshGraph] = usePolling(fetchGraph, 5000, isAuthenticated);
+  const [users, refreshUsers] = usePolling(fetchUsers, 5000, isAuthenticated);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState('');
   const [showcaseLoading, setShowcaseLoading] = useState(false);
@@ -86,6 +103,10 @@ export default function App() {
     }
   };
 
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
@@ -137,13 +158,19 @@ export default function App() {
             <div className="w-px h-6 bg-gray-200 mx-1" />
             <button
               onClick={toggleStream}
-              className={`px-4 py-1.5 rounded-lg text-xs font-medium border ${
-                streaming
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium border ${streaming
                   ? 'bg-gray-800 text-white border-gray-700 hover:bg-gray-700'
                   : 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600'
-              }`}
+                }`}
             >
               {streaming ? 'Stop Stream' : 'Start Stream'}
+            </button>
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium border border-gray-300"
+            >
+              Sign Out
             </button>
           </div>
         </div>
