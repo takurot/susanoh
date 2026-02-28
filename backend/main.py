@@ -70,7 +70,7 @@ app.add_middleware(
 redis_client = RedisClient()
 sm = StateMachine(redis_client.get_client())
 l1 = L1Engine(redis_client.get_client())
-l2 = L2Engine()
+l2 = L2Engine(redis_client.get_client())
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
 persistence_store = PersistenceStore.from_env()
@@ -101,17 +101,19 @@ async def api_key_auth_middleware(request, call_next):
 async def reset_runtime_state() -> None:
     await sm.reset()
     await l1.reset()
-    l2.reset()
+    await l2.reset()
     persistence_store.clear_all()
 
 
-def _persist_runtime_snapshot() -> None:
+async def _persist_runtime_snapshot() -> None:
     # Snapshotting to DB is primarily for in-memory mode in this prototype.
     # However, we allow it even with Redis if DATABASE_URL is set (Finding 2).
     # Note that sm.accounts and l1.recent_events will contain the most recent 
     # data since StateMachine/L1Engine now maintain local caches.
     try:
-        persistence_store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=l2.analysis_results)
+        # get_analyses is now async, so we must await it
+        analyses = await l2.get_analyses(limit=50)
+        persistence_store.persist_runtime_snapshot(sm=sm, l1=l1, l2_results=analyses)
     except Exception as exc:
         logger.warning("Failed to persist runtime snapshot: %s", exc)
 
@@ -155,7 +157,7 @@ async def _process_event_with_options(event: GameEventLog, schedule_l2: bool) ->
         else:
             asyncio.create_task(_run_l2(analysis_req))
 
-    _persist_runtime_snapshot()
+    await _persist_runtime_snapshot()
     return {"screened": result.screened, "triggered_rules": result.triggered_rules}
 
 
@@ -163,7 +165,7 @@ async def _run_l2(analysis_req) -> None:
     try:
         verdict = await l2.analyze(analysis_req)
         await sm.apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
-        _persist_runtime_snapshot()
+        await _persist_runtime_snapshot()
     except Exception as exc:
         logger.error(f"Synchronous L2 analysis task failed: {exc}", exc_info=True)
 
@@ -261,7 +263,7 @@ async def release_user(user_id: str):
     ok = await sm.transition(user_id, AccountState.NORMAL, "MANUAL_RELEASE", "OPERATOR", "Manual release")
     if not ok:
         raise HTTPException(500, "State transition failed")
-    _persist_runtime_snapshot()
+    await _persist_runtime_snapshot()
     return {"user_id": user_id, "state": AccountState.NORMAL.value}
 
 
@@ -303,13 +305,13 @@ async def analyze(event: GameEventLog):
         event.target_id, event, result.triggered_rules, current_state
     )
     verdict = await l2.analyze(analysis_req)
-    _persist_runtime_snapshot()
+    await _persist_runtime_snapshot()
     return verdict
 
 
 @app.get("/api/v1/analyses", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_analyses(limit: int = Query(default=20, le=100)):
-    return l2.get_analyses(limit)
+    return await l2.get_analyses(limit)
 
 
 # --- Demo ---
@@ -361,7 +363,7 @@ async def run_showcase_smurfing():
             verdict = await l2.analyze(analysis_req)
             await sm.apply_l2_verdict(verdict.target_id, verdict.recommended_action, verdict.risk_score)
             latest_analysis = verdict
-            _persist_runtime_snapshot()
+            await _persist_runtime_snapshot()
         except Exception as exc:
             analysis_error = f"L2 analysis failed: {exc}"
     else:
@@ -370,7 +372,7 @@ async def run_showcase_smurfing():
     status_code, _ = await _withdraw_status(target_user)
     if latest_analysis is None:
         latest_analysis = next(
-            (analysis for analysis in l2.get_analyses(limit=50) if analysis.target_id == target_user),
+            (analysis for analysis in await l2.get_analyses(limit=50) if analysis.target_id == target_user),
             None,
         )
 

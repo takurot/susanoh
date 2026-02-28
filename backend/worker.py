@@ -41,7 +41,7 @@ async def analyze_l2_task(ctx: dict[Any, Any], analysis_req: AnalysisRequest) ->
 async def startup(ctx: dict[Any, Any]) -> None:
     redis_pool = ctx['redis']
     ctx['sm'] = StateMachine(redis_pool)
-    ctx['l2'] = L2Engine()
+    ctx['l2'] = L2Engine(redis_pool)
     ctx['persistence'] = PersistenceStore.from_env()
     ctx['persistence'].init_schema()
     logger.info("Worker started up")

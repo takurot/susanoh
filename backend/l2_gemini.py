@@ -95,12 +95,24 @@ def _local_fallback(request: AnalysisRequest, reason: str) -> ArbitrationResult:
     )
 
 
+from typing import TYPE_CHECKING, Optional
+from redis.exceptions import RedisError
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 class L2Engine:
-    def __init__(self) -> None:
+    def __init__(self, redis_client: Optional[Redis] = None) -> None:
+        self.redis = redis_client
         self.analysis_results: list[ArbitrationResult] = []
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         self.analysis_results.clear()
+        if self.redis:
+            try:
+                await self.redis.delete("susanoh:analyses")
+            except RedisError as e:
+                logger.warning("Redis reset failed: %s", e)
 
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
         api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -112,11 +124,23 @@ class L2Engine:
         try:
             result = await self._call_gemini(request, api_key)
             self.analysis_results.append(result)
+            if self.redis:
+                try:
+                    await self.redis.lpush("susanoh:analyses", result.model_dump_json())
+                    await self.redis.ltrim("susanoh:analyses", 0, 199)
+                except RedisError as e:
+                    logger.warning("Redis lpush (gemini) failed: %s", e)
             return result
         except Exception as e:
             logger.warning("Gemini API error: %s — falling back", e)
             result = _local_fallback(request, f"API error: {e}")
             self.analysis_results.append(result)
+            if self.redis:
+                try:
+                    await self.redis.lpush("susanoh:analyses", result.model_dump_json())
+                    await self.redis.ltrim("susanoh:analyses", 0, 199)
+                except RedisError as e:
+                    logger.warning("Redis lpush (fallback) failed: %s", e)
             return result
 
     async def _call_gemini(self, request: AnalysisRequest, api_key: str) -> ArbitrationResult:
@@ -201,5 +225,11 @@ class L2Engine:
 
         return "\n".join(lines)
 
-    def get_analyses(self, limit: int = 20) -> list[ArbitrationResult]:
+    async def get_analyses(self, limit: int = 20) -> list[ArbitrationResult]:
+        if self.redis:
+            try:
+                raw_analyses = await self.redis.lrange("susanoh:analyses", 0, limit - 1)
+                return [ArbitrationResult.model_validate_json(item) for item in raw_analyses]
+            except RedisError as e:
+                logger.warning("Redis get_analyses failed: %s. Using in-memory.", e)
         return list(reversed(self.analysis_results[-limit:]))
