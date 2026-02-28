@@ -57,7 +57,7 @@ async def test_fallback_stores_result():
     try:
         engine = L2Engine()
         await engine.analyze(_make_request())
-        assert len(engine.get_analyses()) == 1
+        assert len(await engine.get_analyses()) == 1
     finally:
         if old:
             os.environ["GEMINI_API_KEY"] = old
@@ -102,7 +102,7 @@ async def test_reset_clears_analysis_results():
         await engine.analyze(_make_request())
         assert len(engine.analysis_results) == 1
 
-        engine.reset()
+        await engine.reset()
         assert engine.analysis_results == []
     finally:
         if old:

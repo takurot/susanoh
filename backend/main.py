@@ -70,7 +70,7 @@ app.add_middleware(
 redis_client = RedisClient()
 sm = StateMachine(redis_client.get_client())
 l1 = L1Engine(redis_client.get_client())
-l2 = L2Engine()
+l2 = L2Engine(redis_client=redis_client.get_client())
 mock = MockGameServer()
 streamer: DemoStreamer | None = None
 persistence_store = PersistenceStore.from_env()
@@ -101,7 +101,7 @@ async def api_key_auth_middleware(request, call_next):
 async def reset_runtime_state() -> None:
     await sm.reset()
     await l1.reset()
-    l2.reset()
+    await l2.reset()
     persistence_store.clear_all()
 
 
@@ -309,7 +309,7 @@ async def analyze(event: GameEventLog):
 
 @app.get("/api/v1/analyses", dependencies=[Depends(require_roles([Role.ADMIN, Role.OPERATOR, Role.VIEWER]))])
 async def get_analyses(limit: int = Query(default=20, le=100)):
-    return l2.get_analyses(limit)
+    return await l2.get_analyses(limit)
 
 
 # --- Demo ---
@@ -370,7 +370,7 @@ async def run_showcase_smurfing():
     status_code, _ = await _withdraw_status(target_user)
     if latest_analysis is None:
         latest_analysis = next(
-            (analysis for analysis in l2.get_analyses(limit=50) if analysis.target_id == target_user),
+            (analysis for analysis in await l2.get_analyses(limit=50) if analysis.target_id == target_user),
             None,
         )
 
