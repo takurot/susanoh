@@ -75,3 +75,33 @@ async def test_redis_fault_tolerance(fake_redis):
         
     # Verify in-memory state still works
     assert "target_2" in engine.user_windows
+
+from redis.exceptions import TimeoutError
+
+@pytest.mark.asyncio
+async def test_redis_timeout_fallback(fake_redis):
+    """Test that Redis timeout during operations falls back safely."""
+    sm = StateMachine(fake_redis)
+    engine = L1Engine(fake_redis)
+    
+    user_id = "user_timeout_01"
+    
+    with patch.object(fake_redis, 'hget', side_effect=TimeoutError("Connection timed out")):
+        # Should not raise exception and use in-memory state
+        state = await sm.get_or_create(user_id)
+        assert state == AccountState.NORMAL
+        
+    event = GameEventLog(
+        event_id="evt_timeout_01",
+        actor_id="actor_3",
+        target_id="target_3",
+        action_details=ActionDetails(currency_amount=100),
+        context_metadata=ContextMetadata()
+    )
+    
+    with patch.object(fake_redis, 'zadd', side_effect=TimeoutError("Connection timed out")):
+        # Should process event and not crash
+        result = await engine.screen(event)
+        assert result.screened is False
+        
+    assert "target_3" in engine.user_windows

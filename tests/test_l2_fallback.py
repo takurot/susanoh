@@ -107,3 +107,66 @@ async def test_reset_clears_analysis_results():
     finally:
         if old:
             os.environ["GEMINI_API_KEY"] = old
+
+
+@pytest.mark.asyncio
+async def test_gemini_api_timeout():
+    """Simulate a timeout when calling Gemini API."""
+    import asyncio
+    
+    old = os.environ.get("GEMINI_API_KEY")
+    os.environ["GEMINI_API_KEY"] = "fake-key-for-test"
+    try:
+        engine = L2Engine()
+        
+        # Patch asyncio.to_thread to simulate a timeout
+        async def mock_timeout(*args, **kwargs):
+            raise asyncio.TimeoutError("Gemini API took too long")
+            
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(asyncio, "to_thread", mock_timeout)
+            result = await engine.analyze(_make_request())
+            
+        # Should drop to local fallback
+        assert result.target_id == "b"
+        assert result.is_fraud is True
+        assert "Local fallback: API error" in result.reasoning
+        assert "Gemini API took too long" in result.reasoning
+        assert result.recommended_action == AccountState.BANNED
+    finally:
+        if old is not None:
+            os.environ["GEMINI_API_KEY"] = old
+        else:
+            del os.environ["GEMINI_API_KEY"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_api_503_service_unavailable():
+    """Simulate a general 503 error from Gemini API."""
+    import asyncio
+    
+    old = os.environ.get("GEMINI_API_KEY")
+    os.environ["GEMINI_API_KEY"] = "fake-key-for-test"
+    try:
+        engine = L2Engine()
+        
+        # Patch asyncio.to_thread to simulate an error
+        async def mock_503(*args, **kwargs):
+            raise Exception("503 Service Unavailable")
+            
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(asyncio, "to_thread", mock_503)
+            result = await engine.analyze(_make_request())
+            
+        # Should drop to local fallback
+        assert result.target_id == "b"
+        assert result.is_fraud is True
+        assert "Local fallback: API error" in result.reasoning
+        assert "503 Service Unavailable" in result.reasoning
+        assert result.recommended_action == AccountState.BANNED
+
+    finally:
+        if old is not None:
+            os.environ["GEMINI_API_KEY"] = old
+        else:
+            del os.environ["GEMINI_API_KEY"]
