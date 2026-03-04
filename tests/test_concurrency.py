@@ -19,12 +19,19 @@ async def _get_jwt_token(client: AsyncClient) -> str:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_event_processing():
+async def test_concurrent_event_processing(monkeypatch):
     """
     Verify that massively concurrent events for the same target user 
     do not cause duplicate state transitions or corrupt L1 logic.
     """
     await reset_runtime_state()
+    
+    # Disable L2 auto-processing for this test so we only test L1 state transitions
+    from backend import main
+    async def _mock_run_l2(*args, **kwargs):
+        pass
+    monkeypatch.setattr(main, "_run_l2", _mock_run_l2)
+    
     user_id = "target_concurrency_01"
 
     api_key = os.environ.get("SUSANOH_API_KEYS", "test").split(",")[0].strip() or "test"
