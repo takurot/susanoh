@@ -58,10 +58,10 @@
 POC運用に近い品質検証を可能にするため、定期実行・失敗検知・証跡保存を備えたテストベンチを整備する。
 
 ### 1.6.1 目的・品質ゲートの明確化
-- [ ] **SLO定義**: `Smoke` / `Regression` / `Soak` / `Live` の各モードで、成功率・許容レイテンシ・許容失敗件数を数値化。
-- [ ] **負荷目標定義**: `Soak` と `Regression` の目標TPS・継続時間・許容エラー率を明示し、実行マシンスペック前提を固定化。
-- [ ] **判定ゲート定義**: `L1ルール一致`, `状態遷移一致`, `L2裁定の範囲整合`, `API可用性` を必須ゲートとして定義。
-- [ ] **実行失敗時ポリシー**: `即失敗` と `再試行後失敗` を分け、CIブロック条件と運用通知条件を明文化。
+- [x] **SLO定義**: `Smoke` / `Regression` / `Soak` / `Live` の各モードで、成功率・許容レイテンシ・許容失敗件数を数値化。 (2026-03-05: `backend/testbench_policy.py`, `docs/TESTBENCH_POLICY.md`)
+- [x] **負荷目標定義**: `Soak` と `Regression` の目標TPS・継続時間・許容エラー率を明示し、実行マシンスペック前提を固定化。 (2026-03-05: `backend/testbench_policy.py`, `docs/TESTBENCH_POLICY.md`)
+- [x] **判定ゲート定義**: `L1ルール一致`, `状態遷移一致`, `L2裁定の範囲整合`, `API可用性` を必須ゲートとして定義。 (2026-03-05: `backend/testbench_policy.py`, `docs/TESTBENCH_POLICY.md`)
+- [x] **実行失敗時ポリシー**: `即失敗` と `再試行後失敗` を分け、CIブロック条件と運用通知条件を明文化。 (2026-03-05: `backend/testbench_policy.py`, `tests/test_testbench_policy.py`)
 
 ### 1.6.2 テストベンチ実行基盤
 - [ ] **Runner設計**: シナリオ読込 -> API送信 -> 結果収集 -> 判定 -> レポート出力のパイプラインを実装。
