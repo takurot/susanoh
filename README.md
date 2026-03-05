@@ -139,6 +139,16 @@ pytest tests/test_live_api.py -m live_api -v
 
 ---
 
+## Operational Testbench Policy (Phase 1.6.1)
+
+運用形式テストベンチの SLO / 負荷目標 / 品質ゲート / 失敗時ポリシーは、以下を参照してください。
+
+- 仕様ドキュメント: [docs/TESTBENCH_POLICY.md](docs/TESTBENCH_POLICY.md)
+- 実装: `backend/testbench_policy.py`
+- 検証テスト: `tests/test_testbench_policy.py`
+
+---
+
 ## API リファレンス
 
 ### Authentication (Current Behavior)
