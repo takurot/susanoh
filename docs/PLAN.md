@@ -49,7 +49,7 @@
 ### 1.5.2 信頼性の検証
 - [x] **Concurrency Testing**: 大量イベント同時受信時、およびステート遷移時の Race Condition 検証。
 - [x] **Fault Injection**: Redis/Gemini API などの外部依存先が「スローレスポンス」や「瞬断」した際の耐障害性テストの拡充。
-- [ ] **Live API Verification**: ステージング環境における Gemini API との定期的疎通確認テスト。
+- [x] **Live API Verification**: ステージング環境における Gemini API との定期的疎通確認テスト。 (2026-03-05: `backend.live_api_verification` + `scripts/run_live_api_verification.sh` + `tests/test_live_api.py::test_staging_live_api_verification`)
 
 ---
 

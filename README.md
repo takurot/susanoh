@@ -114,6 +114,31 @@ npm run dev
 
 ---
 
+## Live API Verification (Staging)
+
+Gemini連携の定期疎通確認は、ステージング環境に対して以下を実行します。
+
+```bash
+export SUSANOH_STAGING_BASE_URL=https://staging.example.com
+export SUSANOH_STAGING_USERNAME=admin
+export SUSANOH_STAGING_PASSWORD=<staging_admin_password>
+# SUSANOH_API_KEYS を有効化している場合のみ必要
+export SUSANOH_STAGING_API_KEY=<staging_api_key>
+# Optional (default: 10)
+export SUSANOH_STAGING_TIMEOUT_SECONDS=10
+
+./scripts/run_live_api_verification.sh
+```
+
+`cron` 等で定期実行する場合は、同コマンドをそのままジョブに登録してください。  
+あわせて、ライブ疎通テスト（`pytest`）は次で実行できます。
+
+```bash
+pytest tests/test_live_api.py -m live_api -v
+```
+
+---
+
 ## API リファレンス
 
 ### Authentication (Current Behavior)

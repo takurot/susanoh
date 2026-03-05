@@ -3,3 +3,6 @@ addopts = "--cov=backend --cov-report=term-missing"
 testpaths = [
     "tests",
 ]
+markers = [
+    "live_api: tests that call live Gemini or staging APIs",
+]
