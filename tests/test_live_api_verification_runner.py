@@ -28,6 +28,13 @@ def test_load_live_api_verification_config_defaults_username_and_optional_api_ke
     assert config.timeout_seconds == 10.0
 
 
+def test_load_live_api_verification_config_prefers_explicit_mapping_over_os_env(monkeypatch):
+    monkeypatch.setenv("SUSANOH_STAGING_BASE_URL", "https://from-os-env.example.com")
+    monkeypatch.setenv("SUSANOH_STAGING_PASSWORD", "secret")
+    with pytest.raises(ValueError, match="SUSANOH_STAGING_BASE_URL"):
+        load_live_api_verification_config({})
+
+
 @pytest.mark.asyncio
 async def test_run_live_api_verification_happy_path(monkeypatch):
     class _Response:
@@ -92,6 +99,8 @@ async def test_run_live_api_verification_happy_path(monkeypatch):
     assert result["ok"] is True
     assert result["target_id"] == "live_check_target"
     assert result["risk_score"] == 64
+    auth_call = client_box["client"].calls[0]
+    assert auth_call["headers"]["X-API-KEY"] == "staging-key"
     analyze_call = client_box["client"].calls[1]
     assert analyze_call["headers"]["Authorization"] == "Bearer jwt-token"
     assert analyze_call["headers"]["X-API-KEY"] == "staging-key"

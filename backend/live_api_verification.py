@@ -23,7 +23,7 @@ class LiveAPIVerificationConfig:
 def load_live_api_verification_config(
     env: Mapping[str, str] | None = None,
 ) -> LiveAPIVerificationConfig:
-    src = env or os.environ
+    src = os.environ if env is None else env
     base_url = src.get("SUSANOH_STAGING_BASE_URL", "").strip()
     if not base_url:
         raise ValueError("SUSANOH_STAGING_BASE_URL is required")
@@ -105,12 +105,14 @@ def _validate_verdict_payload(payload: Mapping[str, Any]) -> None:
 async def run_live_api_verification(config: LiveAPIVerificationConfig) -> dict[str, Any]:
     started = time.perf_counter()
     async with httpx.AsyncClient(base_url=config.base_url, timeout=config.timeout_seconds) as client:
+        api_key_headers = {"X-API-KEY": config.api_key} if config.api_key else {}
         token_response = await client.post(
             "/api/v1/auth/token",
             data={
                 "username": config.username,
                 "password": config.password,
             },
+            headers=api_key_headers,
         )
         token_response.raise_for_status()
         token_payload = token_response.json()
@@ -118,9 +120,7 @@ async def run_live_api_verification(config: LiveAPIVerificationConfig) -> dict[s
         if not isinstance(access_token, str) or not access_token:
             raise RuntimeError("Authentication succeeded but access_token is missing")
 
-        headers = {"Authorization": f"Bearer {access_token}"}
-        if config.api_key:
-            headers["X-API-KEY"] = config.api_key
+        headers = {"Authorization": f"Bearer {access_token}", **api_key_headers}
 
         verification_event = _build_probe_event()
         analyze_response = await client.post(
