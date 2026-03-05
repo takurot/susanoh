@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
+from types import MappingProxyType
+from typing import Mapping, TypeVar
 
 
 class TestbenchMode(str, Enum):
@@ -66,43 +67,55 @@ class OperationalTestbenchPolicy:
     failure: FailurePolicy
 
 
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+def _freeze_mapping(values: Mapping[_K, _V]) -> Mapping[_K, _V]:
+    return MappingProxyType(dict(values))
+
+
 _DEFAULT_POLICY = OperationalTestbenchPolicy(
-    slos={
-        TestbenchMode.SMOKE: ServiceLevelObjective(
-            min_success_rate=1.0,
-            max_p95_latency_ms=1200,
-            max_failures=0,
-        ),
-        TestbenchMode.REGRESSION: ServiceLevelObjective(
-            min_success_rate=0.99,
-            max_p95_latency_ms=1800,
-            max_failures=2,
-        ),
-        TestbenchMode.SOAK: ServiceLevelObjective(
-            min_success_rate=0.995,
-            max_p95_latency_ms=2200,
-            max_failures=8,
-        ),
-        TestbenchMode.LIVE: ServiceLevelObjective(
-            min_success_rate=0.95,
-            max_p95_latency_ms=5000,
-            max_failures=1,
-        ),
-    },
-    load_targets={
-        TestbenchMode.REGRESSION: LoadTarget(
-            target_tps=25.0,
-            duration_minutes=30,
-            max_error_rate=0.01,
-            machine_profile="4 vCPU / 8 GB RAM / NVMe SSD / 1 Gbps network",
-        ),
-        TestbenchMode.SOAK: LoadTarget(
-            target_tps=40.0,
-            duration_minutes=240,
-            max_error_rate=0.005,
-            machine_profile="8 vCPU / 16 GB RAM / NVMe SSD / 1 Gbps network",
-        ),
-    },
+    slos=_freeze_mapping(
+        {
+            TestbenchMode.SMOKE: ServiceLevelObjective(
+                min_success_rate=1.0,
+                max_p95_latency_ms=1200,
+                max_failures=0,
+            ),
+            TestbenchMode.REGRESSION: ServiceLevelObjective(
+                min_success_rate=0.99,
+                max_p95_latency_ms=1800,
+                max_failures=2,
+            ),
+            TestbenchMode.SOAK: ServiceLevelObjective(
+                min_success_rate=0.995,
+                max_p95_latency_ms=2200,
+                max_failures=8,
+            ),
+            TestbenchMode.LIVE: ServiceLevelObjective(
+                min_success_rate=0.95,
+                max_p95_latency_ms=5000,
+                max_failures=1,
+            ),
+        }
+    ),
+    load_targets=_freeze_mapping(
+        {
+            TestbenchMode.REGRESSION: LoadTarget(
+                target_tps=25.0,
+                duration_minutes=30,
+                max_error_rate=0.01,
+                machine_profile="4 vCPU / 8 GB RAM / NVMe SSD / 1 Gbps network",
+            ),
+            TestbenchMode.SOAK: LoadTarget(
+                target_tps=40.0,
+                duration_minutes=240,
+                max_error_rate=0.005,
+                machine_profile="8 vCPU / 16 GB RAM / NVMe SSD / 1 Gbps network",
+            ),
+        }
+    ),
     quality_gates=QualityGatePolicy(
         require_l1_rule_match=True,
         require_state_path_match=True,

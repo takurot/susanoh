@@ -101,3 +101,13 @@ def test_classify_failure_rejects_invalid_attempt():
     policy = load_operational_testbench_policy()
     with pytest.raises(ValueError, match="attempt"):
         classify_failure(FailureType.INFRA_DEPENDENCY, attempt=0, policy=policy.failure)
+
+
+def test_policy_mappings_are_immutable():
+    policy = load_operational_testbench_policy()
+
+    with pytest.raises(TypeError):
+        policy.slos[TestbenchMode.SMOKE] = policy.slos[TestbenchMode.SMOKE]  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        policy.load_targets[TestbenchMode.REGRESSION] = policy.load_targets[TestbenchMode.REGRESSION]  # type: ignore[index]
