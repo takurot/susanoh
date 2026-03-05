@@ -53,6 +53,63 @@
 
 ---
 
+## Phase 1.6: Operational Test Bench (運用形式テストベンチ)
+
+POC運用に近い品質検証を可能にするため、定期実行・失敗検知・証跡保存を備えたテストベンチを整備する。
+
+### 1.6.1 目的・品質ゲートの明確化
+- [ ] **SLO定義**: `Smoke` / `Regression` / `Soak` / `Live` の各モードで、成功率・許容レイテンシ・許容失敗件数を数値化。
+- [ ] **負荷目標定義**: `Soak` と `Regression` の目標TPS・継続時間・許容エラー率を明示し、実行マシンスペック前提を固定化。
+- [ ] **判定ゲート定義**: `L1ルール一致`, `状態遷移一致`, `L2裁定の範囲整合`, `API可用性` を必須ゲートとして定義。
+- [ ] **実行失敗時ポリシー**: `即失敗` と `再試行後失敗` を分け、CIブロック条件と運用通知条件を明文化。
+
+### 1.6.2 テストベンチ実行基盤
+- [ ] **Runner設計**: シナリオ読込 -> API送信 -> 結果収集 -> 判定 -> レポート出力のパイプラインを実装。
+  - 対応入力: `tests/fixtures/testbench/scenarios.json` と `events.jsonl`
+  - 対応出力: `artifacts/testbench/<run_id>/summary.json` + `failures.json` + `report.md` + `junit.xml`
+- [ ] **CI可視化連携**: `junit.xml` を GitHub Actions などで取り込み、失敗ケースをPR上でアノテーション表示可能にする。
+- [ ] **実行プロファイル**: `local`, `staging` の2系統を切替可能化（base URL, auth, timeout, retry）。
+- [ ] **再実行耐性**: 同一シナリオIDで複数回走らせても衝突しないよう、event_id suffix と target namespace をラン毎に隔離。
+- [ ] **終了コード設計**: `0=all pass`, `1=quality gate fail`, `2=infra/dependency fail`, `3=invalid fixture` を固定化。
+
+### 1.6.3 実行モードとスケジュール運用
+- [ ] **Smoke (PRごと)**: 高リスク不正2件 + 正常系2件を5-10分で完走する軽量モードを追加。
+- [ ] **Regression (日次)**: 全シナリオ + fault injection を20-40分で実行し、日次サマリを保存。
+  - 既定は録画レスポンス（VCR/Cassette）またはモックLLMで実行し、コストと flakiness を抑制。
+  - 実APIを叩く `Regression-Live` は件数を絞って別スケジュール（例: 週次/夜間）で実行。
+- [ ] **Soak (週次)**: 長時間リプレイでメモリリーク/状態不整合/遅延悪化を検知。
+  - 負荷ジェネレーター（`k6` / `Locust` / Runner内ループ）を選定し、初期目標TPSを定義して継続測定。
+- [ ] **Live Verification (定期)**: `backend.live_api_verification` と連動し、外部依存の生存確認を同一レポートへ集約。
+
+### 1.6.4 不正シナリオデータ戦略（多彩パターン検証）
+- [x] **Seedデータ生成 (v0.1.0)**: 15シナリオ/125イベントの初期fixtureを作成。 (2026-03-05)
+  - 生成スクリプト: `scripts/generate_testbench_dataset.py`
+  - 生成物: `tests/fixtures/testbench/scenarios.json`, `tests/fixtures/testbench/events.jsonl`
+  - 分布: high=8, medium=3, low=4
+- [ ] **パターンカタログ固定**: 次のカテゴリを最小検証セットとして固定し、欠損時はCI failにする。
+  - 高リスク不正: `smurfing fan-in`, `direct RMT chat`, `layering chain`, `bot micro-burst`, `market price abuse`, `cross-cluster bridge`, `cashout prep`, `sleeper activation`
+  - 誤検知ストレス: `guild treasury collection`, `flash-sale peak`, `streamer donation spike`
+  - 正常ベースライン: `season rewards`, `small friend gifts`, `whale purchase fair-price`, `tournament payout`
+- [ ] **期待値メタデータ拡張**: 各シナリオに `expected_l1`, `expected_state_path`, `expected_l2_action_range`, `max_p95_ms` を保持。
+- [ ] **閾値境界データ追加**: R1/R2/R3/R4 それぞれで `just_below`, `at_threshold`, `just_above` ケースを追加。
+- [ ] **時系列ゆらぎデータ**: イベント順序入替・遅延到着・重複送信を再現するデータセットを追加。
+- [ ] **長期運用用データ版管理**: `dataset_version` と changelog を導入し、ベンチ結果をデータ版で比較可能化。
+
+### 1.6.5 Fault Injection / 可観測性タスク
+- [ ] **依存障害シナリオ**: Redis timeout / Gemini 429・5xx / DB接続劣化をベンチシナリオとして実装。
+- [ ] **LLM固有障害シナリオ**: malformed JSON（スキーマ崩れ）/ context length exceeded / token limit 超過時のフォールバック挙動を検証。
+- [ ] **メトリクス収集**: シナリオ単位で `request_count`, `error_rate`, `p50/p95/p99`, `state_drift_count` を記録。
+- [ ] **失敗時証跡**: 失敗イベントの request/response, triggered_rules, state snapshot を自動保存。
+- [ ] **差分比較レポート**: 前回runとの差分（失敗増減、遅延悪化、誤検知率変化）を Markdown で出力。
+
+### 1.6.6 受け入れ基準 (POC運用)
+- [ ] **機能基準**: 15シナリオ全件をRunnerで再生し、期待ゲート判定を自動実施できる。
+- [ ] **安定性基準**: 同条件3連続実行で判定ぶれが 0 件である。
+- [ ] **運用基準**: 定期実行・失敗通知・レポート保存が手動介入なしで回る。
+- [ ] **継続改善基準**: 新規不正パターン追加時、fixture更新 -> ベンチ実行 -> レポート反映が1PRで完了できる。
+
+---
+
 ## Phase 2: Infrastructure & DevOps (運用基盤)
 
 安定したデプロイと監視体制を構築し、SLA 99.9%を担保する準備を整える。
