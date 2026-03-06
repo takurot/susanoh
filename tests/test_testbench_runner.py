@@ -90,6 +90,36 @@ def _write_fixture(
 
 
 def _passing_scenarios() -> list[dict]:
+    from backend.testbench_runner import REQUIRED_SCENARIOS
+
+    scenarios = []
+
+    for req_scenario in REQUIRED_SCENARIOS:
+        scenarios.append({
+            "scenario_id": req_scenario,
+            "title": f"Local test - {req_scenario}",
+            "pattern_family": "LEGITIMATE",
+            "risk_tier": "low",
+            "expected": {
+                "target_id": f"acct_target_{req_scenario}",
+                "l1_primary_rules": [],
+                "l2_fallback_action": "NORMAL",
+                "notes": "Valid passing scenario.",
+            },
+            "events": [
+                _event(
+                    event_id=f"evt_{req_scenario}_01",
+                    actor_id=f"acct_src_{req_scenario}",
+                    target_id=f"acct_target_{req_scenario}",
+                    amount=10_000,
+                    timestamp="2099-01-01T00:00:00Z",
+                ),
+            ],
+        })
+
+    return scenarios
+
+def _passing_scenarios_original() -> list[dict]:
     return [
         {
             "scenario_id": "fraud_runner_local",
@@ -218,7 +248,8 @@ def test_apply_run_namespace_suffixes_targets_and_event_ids():
 
 @pytest.mark.asyncio
 async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
-    fixture_dir = _write_fixture(tmp_path, scenarios=_passing_scenarios())
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
     output_root = tmp_path / "artifacts"
     config = load_runner_config(
         profile=RunnerProfile.LOCAL,
@@ -232,15 +263,16 @@ async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
     result = await run_testbench(config)
 
     assert result.exit_code is RunnerExitCode.ALL_PASS
-    assert result.summary["scenarios_total"] == 2
-    assert result.summary["scenarios_passed"] == 2
+    assert result.summary["scenarios_total"] == len(scenarios)
+    assert result.summary["scenarios_passed"] == len(scenarios)
     assert result.summary["scenarios_failed"] == 0
     assert result.summary["profile"] == "local"
     assert result.summary["mode"] == "regression"
     assert result.failures == []
 
     scenario_ids = {scenario["scenario_id"] for scenario in result.summary["scenarios"]}
-    assert scenario_ids == {"fraud_runner_local", "legit_runner_local"}
+    expected_scenario_ids = {s["scenario_id"] for s in scenarios}
+    assert scenario_ids == expected_scenario_ids
     target_ids = {scenario["target_id"] for scenario in result.summary["scenarios"]}
     assert all(target_id.endswith("__run-pass") for target_id in target_ids)
 
@@ -261,10 +293,10 @@ async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
 
     report_text = report_path.read_text(encoding="utf-8")
     assert "run-pass" in report_text
-    assert "fraud_runner_local" in report_text
+    assert list(expected_scenario_ids)[0] in report_text
 
     root = ET.fromstring(junit_path.read_text(encoding="utf-8"))
-    assert root.attrib["tests"] == "2"
+    assert root.attrib["tests"] == str(len(scenarios))
     assert root.attrib["failures"] == "0"
 
 
@@ -303,6 +335,7 @@ async def test_run_testbench_local_ignores_gemini_env(tmp_path, monkeypatch):
 async def test_run_testbench_returns_quality_gate_exit_code_when_expectations_mismatch(tmp_path):
     scenarios = _passing_scenarios()
     scenarios[0]["expected"]["l1_primary_rules"] = ["R2"]
+    scenario_id = scenarios[0]["scenario_id"]
     fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
     config = load_runner_config(
         profile=RunnerProfile.LOCAL,
@@ -318,7 +351,7 @@ async def test_run_testbench_returns_quality_gate_exit_code_when_expectations_mi
     assert result.exit_code is RunnerExitCode.QUALITY_GATE_FAIL
     assert result.summary["scenarios_failed"] == 1
     assert result.failures[0]["failure_type"] == "quality_gate"
-    assert result.failures[0]["scenario_id"] == "fraud_runner_local"
+    assert result.failures[0]["scenario_id"] == scenario_id
     assert "l1_rule_match" in result.failures[0]["failed_gates"]
 
 
@@ -364,45 +397,53 @@ def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):
 def test_select_scenarios_smoke_mode_raises_on_missing_default():
     """Smoke mode should raise ValueError if a default scenario ID is missing from the dataset."""
     from backend.testbench_runner import ScenarioFixture, TestbenchDataset
+    from pydantic import ValidationError
 
-    minimal_scenario = ScenarioFixture.model_validate({
-        "scenario_id": "fraud_smurfing_fan_in",
-        "title": "test",
-        "pattern_family": "RMT",
-        "risk_tier": "high",
-        "expected": {
-            "target_id": "acct_target_01",
-            "l1_primary_rules": [],
-            "l2_fallback_action": "NORMAL",
-        },
-        "events": [
-            {
-                "event_id": "evt_01",
-                "timestamp": "2099-01-01T00:00:00Z",
-                "event_type": "TRADE",
-                "actor_id": "acct_src_01",
-                "target_id": "acct_target_01",
-                "action_details": {
-                    "currency_amount": 1000,
-                    "market_avg_price": 1000,
-                },
-                "context_metadata": {
-                    "actor_level": 10,
-                    "account_age_days": 100,
-                },
-            }
-        ],
-    })
+    scenarios = _passing_scenarios()
+    # Remove one required smoke scenario
+    scenarios = [s for s in scenarios if s["scenario_id"] != "fraud_smurfing_fan_in"]
+
+    with pytest.raises(ValidationError, match="missing required scenario categories"):
+        TestbenchDataset(
+            dataset="test",
+            version="v0",
+            generated_at="2026-01-01T00:00:00Z",
+            seed=0,
+            scenario_count=len(scenarios),
+            event_count=sum(len(s["events"]) for s in scenarios),
+            scenarios=scenarios,
+        )
+
+
+def test_testbench_dataset_requires_all_scenarios():
+    """The TestbenchDataset model should enforce that all REQUIRED_SCENARIOS are present."""
+    from backend.testbench_runner import TestbenchDataset, REQUIRED_SCENARIOS
+    from pydantic import ValidationError
+
+    scenarios = _passing_scenarios()
+
+    # Valid
     dataset = TestbenchDataset(
         dataset="test",
         version="v0",
         generated_at="2026-01-01T00:00:00Z",
         seed=0,
-        scenario_count=1,
-        event_count=1,
-        scenarios=[minimal_scenario],
+        scenario_count=len(scenarios),
+        event_count=len(scenarios),
+        scenarios=scenarios,
     )
+    assert len(dataset.scenarios) == len(REQUIRED_SCENARIOS)
 
-    with pytest.raises(ValueError, match="selected scenarios not found in fixture"):
-        _select_scenarios(dataset, selected=[], mode=TestbenchMode.SMOKE)
+    # Missing a required scenario
+    invalid_scenarios = scenarios[:-1]
+    with pytest.raises(ValidationError, match="missing required scenario categories"):
+        TestbenchDataset(
+            dataset="test",
+            version="v0",
+            generated_at="2026-01-01T00:00:00Z",
+            seed=0,
+            scenario_count=len(invalid_scenarios),
+            event_count=len(invalid_scenarios),
+            scenarios=invalid_scenarios,
+        )
 

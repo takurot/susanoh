@@ -121,6 +121,25 @@ class ScenarioFixture(BaseModel):
         return self
 
 
+REQUIRED_SCENARIOS = frozenset([
+    "fraud_smurfing_fan_in",
+    "fraud_direct_rmt_chat",
+    "fraud_layering_chain_exit",
+    "fraud_microburst_bot_farm",
+    "fraud_market_price_abuse",
+    "fraud_cross_cluster_bridge",
+    "fraud_cashout_prep_sequence",
+    "fraud_sleeper_activation",
+    "gray_guild_treasury_collection",
+    "gray_flash_sale_peak",
+    "gray_streamer_donation_spike",
+    "legit_new_season_rewards",
+    "legit_friend_gifts_low_value",
+    "legit_whale_purchase_high_avg",
+    "legit_tournament_prize_batch",
+])
+
+
 class TestbenchDataset(BaseModel):
     dataset: str
     version: str
@@ -147,6 +166,13 @@ class TestbenchDataset(BaseModel):
 
         if self.event_count != total_events:
             raise ValueError(f"event_count mismatch: expected {self.event_count}, got {total_events}")
+
+        missing = REQUIRED_SCENARIOS - seen
+        if missing:
+            raise ValueError(
+                f"missing required scenario categories: {', '.join(sorted(missing))}"
+            )
+
         return self
 
 
