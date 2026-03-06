@@ -95,6 +95,14 @@ def _local_fallback(request: AnalysisRequest, reason: str) -> ArbitrationResult:
     )
 
 
+def build_deterministic_local_result(
+    request: AnalysisRequest,
+    *,
+    reason: str = "deterministic local analyzer",
+) -> ArbitrationResult:
+    return _local_fallback(request, reason)
+
+
 from typing import TYPE_CHECKING, Optional
 from redis.exceptions import RedisError
 
@@ -126,12 +134,23 @@ class L2Engine:
             except Exception as e:
                 logger.warning("Redis L2 store failed: %s", e)
 
+    async def analyze_deterministically(
+        self,
+        request: AnalysisRequest,
+        *,
+        reason: str = "deterministic local analyzer",
+    ) -> ArbitrationResult:
+        result = build_deterministic_local_result(request, reason=reason)
+        await self._store_result(result)
+        return result
+
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
-            result = _local_fallback(request, "GEMINI_API_KEY is not set")
-            await self._store_result(result)
-            return result
+            return await self.analyze_deterministically(
+                request,
+                reason="GEMINI_API_KEY is not set",
+            )
 
         try:
             result = await self._call_gemini(request, api_key)
@@ -139,9 +158,10 @@ class L2Engine:
             return result
         except Exception as e:
             logger.warning("Gemini API error: %s — falling back", e)
-            result = _local_fallback(request, f"API error: {e}")
-            await self._store_result(result)
-            return result
+            return await self.analyze_deterministically(
+                request,
+                reason=f"API error: {e}",
+            )
 
     async def _call_gemini(self, request: AnalysisRequest, api_key: str) -> ArbitrationResult:
         import asyncio

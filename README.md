@@ -147,6 +147,46 @@ pytest tests/test_live_api.py -m live_api -v
 - 実装: `backend/testbench_policy.py`
 - 検証テスト: `tests/test_testbench_policy.py`
 
+## Operational Testbench Runner (Phase 1.6.2)
+
+運用形式テストベンチの Runner は `backend.testbench_runner` として実装されています。  
+`scenarios.json` / `events.jsonl` を検証し、シナリオを replay して `summary.json` / `failures.json` / `report.md` / `junit.xml` を出力します。
+
+### Local Profile
+
+```bash
+.venv/bin/python -m backend.testbench_runner \
+  --profile local \
+  --mode regression \
+  --run-id local-regression
+```
+
+`local` プロファイルは外部 Gemini 資格情報を使わず、ローカルの決定論的な L2 判定で再現性を優先します。
+
+### Staging Profile
+
+```bash
+export SUSANOH_TESTBENCH_STAGING_BASE_URL=https://staging.example.com
+export SUSANOH_TESTBENCH_STAGING_USERNAME=admin
+export SUSANOH_TESTBENCH_STAGING_PASSWORD=<staging_admin_password>
+# SUSANOH_API_KEYS を有効化している場合のみ必要
+export SUSANOH_TESTBENCH_STAGING_API_KEY=<staging_api_key>
+# Optional (default: 10)
+export SUSANOH_TESTBENCH_TIMEOUT_SECONDS=10
+
+.venv/bin/python -m backend.testbench_runner \
+  --profile staging \
+  --mode live \
+  --run-id staging-live \
+  --scenario fraud_smurfing_fan_in
+```
+
+### Artifacts And Exit Codes
+
+- 出力先: `artifacts/testbench/<run_id>/`
+- 出力物: `summary.json`, `failures.json`, `report.md`, `junit.xml`
+- 終了コード: `0=all pass`, `1=quality gate fail`, `2=infra/dependency fail`, `3=invalid fixture`
+
 ---
 
 ## API リファレンス
