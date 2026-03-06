@@ -96,3 +96,43 @@ jobs:
       - name: Run E2E tests
         working-directory: frontend
         run: npx playwright test --project=chromium
+
+  testbench:
+    name: Backend Testbench (Smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Testbench
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          # Start the server in the background
+          uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
+          
+          # Wait for the server to be ready
+          timeout 15 bash -c 'until curl -s http://0.0.0.0:8000/api/v1/health; do sleep 1; done'
+          
+          # Run the testbench in smoke mode
+          python -m backend.testbench_runner --profile local --mode smoke
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v4
+        if: success() || failure()
+        with:
+          report_paths: 'artifacts/testbench/*/junit.xml'
+          check_name: 'Testbench Smoke Report'

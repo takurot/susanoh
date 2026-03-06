@@ -288,7 +288,7 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
 
     try:
         dataset = load_testbench_fixture(config.fixtures_dir)
-        scenarios = _select_scenarios(dataset, config.selected_scenarios)
+        scenarios = _select_scenarios(dataset, config.selected_scenarios, config.mode)
     except ValueError as exc:
         failure = _build_failure(
             failure_type=FailureType.INVALID_FIXTURE,
@@ -640,13 +640,14 @@ async def _run_local_l2(
     import backend.main as main_module
 
     trigger_event = _latest_target_event(event_pairs, scenario.expected.target_id)
-    triggered_rules = []
-    for event, payload in reversed(event_pairs):
-        if event.target_id == scenario.expected.target_id and payload.get("triggered_rules"):
-            triggered_rules = list(payload.get("triggered_rules", []))
-            trigger_event = event
-            break
+    triggered_rules_set = set()
+    for event, payload in event_pairs:
+        if event.target_id == scenario.expected.target_id:
+            triggered_rules_set.update(payload.get("triggered_rules", []))
+            if payload.get("triggered_rules"):
+                trigger_event = event
 
+    triggered_rules = sorted(list(triggered_rules_set))
     started = time.perf_counter()
     try:
         current_state = await main_module.sm.get_or_create(trigger_event.target_id)
@@ -681,9 +682,17 @@ def _latest_target_event(
     raise ValueError(f"no event found for target_id {target_id}")
 
 
-def _select_scenarios(dataset: TestbenchDataset, selected: Sequence[str]) -> list[ScenarioFixture]:
+def _select_scenarios(dataset: TestbenchDataset, selected: Sequence[str], mode: TestbenchMode) -> list[ScenarioFixture]:
     if not selected:
-        return list(dataset.scenarios)
+        if mode is TestbenchMode.SMOKE:
+            selected = [
+                "fraud_smurfing_fan_in",
+                "fraud_direct_rmt_chat",
+                "legit_new_season_rewards",
+                "legit_friend_gifts_low_value",
+            ]
+        else:
+            return list(dataset.scenarios)
 
     selected_set = set(selected)
     scenarios = [scenario for scenario in dataset.scenarios if scenario.scenario_id in selected_set]
