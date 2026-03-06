@@ -9,8 +9,10 @@ from backend.testbench_policy import TestbenchMode
 from backend.testbench_runner import (
     RunnerExitCode,
     RunnerProfile,
+    _select_scenarios,
     apply_run_namespace,
     load_runner_config,
+    load_testbench_fixture,
     run_testbench,
 )
 
@@ -340,3 +342,67 @@ async def test_run_testbench_returns_invalid_fixture_exit_code_for_duplicate_sce
     assert result.summary["status"] == "failed"
     assert result.failures[0]["failure_type"] == "invalid_fixture"
     assert "duplicate scenario_id" in result.failures[0]["message"]
+
+
+def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):
+    """Smoke mode with no explicit selection should return exactly 4 default scenarios."""
+    fixture_dir = Path("tests/fixtures/testbench")
+    dataset = load_testbench_fixture(fixture_dir)
+
+    selected = _select_scenarios(dataset, selected=[], mode=TestbenchMode.SMOKE)
+
+    ids = [s.scenario_id for s in selected]
+    assert ids == [
+        "fraud_smurfing_fan_in",
+        "fraud_direct_rmt_chat",
+        "legit_new_season_rewards",
+        "legit_friend_gifts_low_value",
+    ]
+    assert len(selected) == 4
+
+
+def test_select_scenarios_smoke_mode_raises_on_missing_default():
+    """Smoke mode should raise ValueError if a default scenario ID is missing from the dataset."""
+    from backend.testbench_runner import ScenarioFixture, TestbenchDataset
+
+    minimal_scenario = ScenarioFixture.model_validate({
+        "scenario_id": "fraud_smurfing_fan_in",
+        "title": "test",
+        "pattern_family": "RMT",
+        "risk_tier": "high",
+        "expected": {
+            "target_id": "acct_target_01",
+            "l1_primary_rules": [],
+            "l2_fallback_action": "NORMAL",
+        },
+        "events": [
+            {
+                "event_id": "evt_01",
+                "timestamp": "2099-01-01T00:00:00Z",
+                "event_type": "TRADE",
+                "actor_id": "acct_src_01",
+                "target_id": "acct_target_01",
+                "action_details": {
+                    "currency_amount": 1000,
+                    "market_avg_price": 1000,
+                },
+                "context_metadata": {
+                    "actor_level": 10,
+                    "account_age_days": 100,
+                },
+            }
+        ],
+    })
+    dataset = TestbenchDataset(
+        dataset="test",
+        version="v0",
+        generated_at="2026-01-01T00:00:00Z",
+        seed=0,
+        scenario_count=1,
+        event_count=1,
+        scenarios=[minimal_scenario],
+    )
+
+    with pytest.raises(ValueError, match="selected scenarios not found in fixture"):
+        _select_scenarios(dataset, selected=[], mode=TestbenchMode.SMOKE)
+
