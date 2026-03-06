@@ -98,7 +98,7 @@ def _passing_scenarios() -> list[dict]:
                 "target_id": "acct_target_01",
                 "l1_primary_rules": ["R1", "R4"],
                 "l2_fallback_action": "BANNED",
-                "notes": "Four senders converge and the final trade contains slang.",
+                "notes": "Five senders converge and the final trade contains slang.",
             },
             "events": [
                 _event(
@@ -127,8 +127,15 @@ def _passing_scenarios() -> list[dict]:
                     actor_id="acct_src_04",
                     target_id="acct_target_01",
                     amount=300_000,
-                    chat="confirm 14k via PayPal",
                     timestamp="2099-01-01T00:00:30Z",
+                ),
+                _event(
+                    event_id="evt_hi_05",
+                    actor_id="acct_src_05",
+                    target_id="acct_target_01",
+                    amount=300_000,
+                    chat="confirm 14k via PayPal",
+                    timestamp="2099-01-01T00:00:40Z",
                 ),
             ],
         },
@@ -257,6 +264,37 @@ async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
     root = ET.fromstring(junit_path.read_text(encoding="utf-8"))
     assert root.attrib["tests"] == "2"
     assert root.attrib["failures"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_ignores_gemini_env(tmp_path, monkeypatch):
+    fixture_dir = _write_fixture(tmp_path, scenarios=_passing_scenarios())
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy-key")
+
+    from backend.l2_gemini import L2Engine
+
+    gemini_calls = 0
+
+    async def _unexpected_gemini_call(self, request, api_key):
+        nonlocal gemini_calls
+        gemini_calls += 1
+        raise AssertionError("Gemini should not be called for local profile")
+
+    monkeypatch.setattr(L2Engine, "_call_gemini", _unexpected_gemini_call)
+
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-no-gemini",
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert gemini_calls == 0
 
 
 @pytest.mark.asyncio

@@ -161,6 +161,8 @@ pytest tests/test_live_api.py -m live_api -v
   --run-id local-regression
 ```
 
+`local` プロファイルは外部 Gemini 資格情報を使わず、ローカルの決定論的な L2 判定で再現性を優先します。
+
 ### Staging Profile
 
 ```bash

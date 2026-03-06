@@ -656,7 +656,10 @@ async def _run_local_l2(
             triggered_rules,
             current_state,
         )
-        verdict = await main_module.l2.analyze(analysis_req)
+        verdict = await main_module.l2.analyze_deterministically(
+            analysis_req,
+            reason="local testbench profile",
+        )
         await main_module.sm.apply_l2_verdict(
             verdict.target_id,
             verdict.recommended_action,
