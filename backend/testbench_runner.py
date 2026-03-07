@@ -608,11 +608,17 @@ async def _run_scenario(
     expected_l2_actions = [state.value for state in namespaced.expected.allowed_l2_actions()]
     final_state = user_payload.get("state") if isinstance(user_payload, dict) else AccountState.NORMAL.value
 
+    latency_stats = _latency_summary(latencies_ms)
+    p95_ok = True
+    if getattr(namespaced.expected, "max_p95_ms", None) is not None:
+        p95_ok = latency_stats["p95"] <= namespaced.expected.max_p95_ms
+
     gates = {
         "l1_rule_match": observed_l1_rules == expected_l1_rules,
         "state_path_match": observed_state_path == expected_state_path,
         "l2_action_range_match": observed_l2_action in expected_l2_actions,
         "api_availability": api_available,
+        "latency_p95_match": p95_ok,
     }
     failed_gates = [name for name, ok in gates.items() if not ok]
 
@@ -648,7 +654,7 @@ async def _run_scenario(
         "observed_l2_action": observed_l2_action,
         "final_state": final_state,
         "request_count": len(latencies_ms),
-        "latency_ms": _latency_summary(latencies_ms),
+        "latency_ms": latency_stats,
         "quality_gates": gates,
     }
     return {

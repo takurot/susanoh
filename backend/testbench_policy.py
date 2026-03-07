@@ -48,6 +48,7 @@ class QualityGatePolicy:
     require_state_path_match: bool
     require_l2_action_range_match: bool
     require_api_availability: bool
+    require_latency_p95_match: bool
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ _DEFAULT_POLICY = OperationalTestbenchPolicy(
         require_state_path_match=True,
         require_l2_action_range_match=True,
         require_api_availability=True,
+        require_latency_p95_match=True,
     ),
     failure=FailurePolicy(
         max_retry_attempts=2,

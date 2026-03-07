@@ -104,6 +104,7 @@ def _passing_scenarios() -> list[dict]:
                 "target_id": f"acct_target_{req_scenario}",
                 "l1_primary_rules": [],
                 "l2_fallback_action": "NORMAL",
+                "max_p95_ms": 5000,
                 "notes": "Valid passing scenario.",
             },
             "events": [
@@ -130,6 +131,7 @@ def _passing_scenarios_original() -> list[dict]:
                 "target_id": "acct_target_01",
                 "l1_primary_rules": ["R1", "R4"],
                 "l2_fallback_action": "BANNED",
+                "max_p95_ms": 5000,
                 "notes": "Five senders converge and the final trade contains slang.",
             },
             "events": [
@@ -180,6 +182,7 @@ def _passing_scenarios_original() -> list[dict]:
                 "target_id": "acct_target_02",
                 "l1_primary_rules": [],
                 "l2_fallback_action": "NORMAL",
+                "max_p95_ms": 5000,
                 "notes": "Low-value transfer should remain normal.",
             },
             "events": [
