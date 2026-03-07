@@ -11,7 +11,7 @@
 - `medium`: 3 scenarios
 
 ## Files
-- `scenarios.json`: scenario-level manifest, expectations, and full event sequences.
+- `scenarios.json`: scenario-level manifest, expectations (including `max_p95_ms`), and full event sequences.
 - `events.jsonl`: flattened stream for replay/soak test ingestion.
 
 ## Regeneration

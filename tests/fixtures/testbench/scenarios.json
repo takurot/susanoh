@@ -1,7 +1,7 @@
 {
   "dataset": "susanoh-operational-testbench",
   "version": "v0.1.0",
-  "generated_at": "2026-03-05T13:02:54.665446Z",
+  "generated_at": "2026-03-07T03:22:08.246633Z",
   "seed": 20260305,
   "scenario_count": 15,
   "event_count": 125,
@@ -20,6 +20,7 @@
           "R4"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "Many low-age senders rapidly transfer to one boss account."
       },
       "events": [
@@ -242,6 +243,7 @@
           "R4"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "Direct slang and disproportionate item pricing."
       },
       "events": [
@@ -309,6 +311,7 @@
           "R1"
         ],
         "l2_fallback_action": "UNDER_SURVEILLANCE",
+        "max_p95_ms": 5000,
         "notes": "Multi-hop transfers converge into one exit account."
       },
       "events": [
@@ -496,6 +499,7 @@
           "R2"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "High transaction count and total amount with low-age senders."
       },
       "events": [
@@ -752,6 +756,7 @@
           "R4"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "Repeated 100x+ price anomalies with coded chat hints."
       },
       "events": [
@@ -906,6 +911,7 @@
           "R4"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "Two clusters converge to bridge account before cashout."
       },
       "events": [
@@ -1094,6 +1100,7 @@
           "R4"
         ],
         "l2_fallback_action": "BANNED",
+        "max_p95_ms": 5000,
         "notes": "Repeated staged transfers shortly before expected withdrawal."
       },
       "events": [
@@ -1298,6 +1305,7 @@
           "R4"
         ],
         "l2_fallback_action": "UNDER_SURVEILLANCE",
+        "max_p95_ms": 5000,
         "notes": "Dormant target suddenly receives high-value bursts from fresh accounts."
       },
       "events": [
@@ -1400,6 +1408,7 @@
           "R2"
         ],
         "l2_fallback_action": "UNDER_SURVEILLANCE",
+        "max_p95_ms": 5000,
         "notes": "Legitimate guild dues may look like fan-in smurfing."
       },
       "events": [
@@ -1621,6 +1630,7 @@
           "R2"
         ],
         "l2_fallback_action": "UNDER_SURVEILLANCE",
+        "max_p95_ms": 5000,
         "notes": "Healthy market spikes should avoid hard bans."
       },
       "events": [
@@ -1808,6 +1818,7 @@
           "R2"
         ],
         "l2_fallback_action": "UNDER_SURVEILLANCE",
+        "max_p95_ms": 5000,
         "notes": "Donation spikes should be reviewable without immediate ban."
       },
       "events": [
@@ -2009,6 +2020,7 @@
         "target_id": "acct_reward_receiver_01",
         "l1_primary_rules": [],
         "l2_fallback_action": "NORMAL",
+        "max_p95_ms": 5000,
         "notes": "System-origin periodic rewards."
       },
       "events": [
@@ -2074,6 +2086,7 @@
         "target_id": "acct_friend_target_01",
         "l1_primary_rules": [],
         "l2_fallback_action": "NORMAL",
+        "max_p95_ms": 5000,
         "notes": "Regular low-value social transfers."
       },
       "events": [
@@ -2241,6 +2254,7 @@
         "target_id": "acct_auction_house_01",
         "l1_primary_rules": [],
         "l2_fallback_action": "NORMAL",
+        "max_p95_ms": 5000,
         "notes": "High absolute value but fair market ratio and low frequency."
       },
       "events": [
@@ -2306,6 +2320,7 @@
         "target_id": "acct_tournament_champion_01",
         "l1_primary_rules": [],
         "l2_fallback_action": "NORMAL",
+        "max_p95_ms": 5000,
         "notes": "Burst payout from official system account."
       },
       "events": [

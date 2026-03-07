@@ -39,6 +39,7 @@ def test_policy_quality_gates_are_all_required():
     assert gates.require_state_path_match is True
     assert gates.require_l2_action_range_match is True
     assert gates.require_api_availability is True
+    assert gates.require_latency_p95_match is True
 
 
 def test_classify_failure_uses_fail_fast_and_retry_paths():
