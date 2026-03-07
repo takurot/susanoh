@@ -151,6 +151,7 @@ pytest tests/test_live_api.py -m live_api -v
 
 運用形式テストベンチの Runner は `backend.testbench_runner` として実装されています。  
 `scenarios.json` / `events.jsonl` を検証し、シナリオを replay して `summary.json` / `failures.json` / `report.md` / `junit.xml` を出力します。
+`scenarios.json` の `expected` にはシナリオ単位の期待値メタデータを保持し、`max_p95_ms` も品質ゲートとして評価します。
 
 ### Local Profile
 

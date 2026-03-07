@@ -120,6 +120,7 @@ def _passing_scenarios() -> list[dict]:
 
     return scenarios
 
+
 def _passing_scenarios_original() -> list[dict]:
     return [
         {
@@ -278,6 +279,8 @@ async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
     assert scenario_ids == expected_scenario_ids
     target_ids = {scenario["target_id"] for scenario in result.summary["scenarios"]}
     assert all(target_id.endswith("__run-pass") for target_id in target_ids)
+    assert all(scenario["max_p95_ms"] == 5000 for scenario in result.summary["scenarios"])
+    assert all(scenario["quality_gates"]["latency_p95_match"] for scenario in result.summary["scenarios"])
 
     summary_path = result.artifacts_dir / "summary.json"
     failures_path = result.artifacts_dir / "failures.json"
@@ -356,6 +359,47 @@ async def test_run_testbench_returns_quality_gate_exit_code_when_expectations_mi
     assert result.failures[0]["failure_type"] == "quality_gate"
     assert result.failures[0]["scenario_id"] == scenario_id
     assert "l1_rule_match" in result.failures[0]["failed_gates"]
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_returns_quality_gate_exit_code_when_latency_budget_is_exceeded(
+    tmp_path, monkeypatch
+):
+    scenarios = _passing_scenarios()
+    scenarios[0]["expected"]["max_p95_ms"] = 5
+    scenario_id = scenarios[0]["scenario_id"]
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+
+    import backend.testbench_runner as runner_module
+
+    original_latency_summary = runner_module._latency_summary
+    latency_summary_calls = 0
+
+    def _latency_summary_with_scenario_breach(latencies_ms):
+        nonlocal latency_summary_calls
+        latency_summary_calls += 1
+        if latency_summary_calls == 1:
+            return {"p50": 8.0, "p95": 12.0, "p99": 15.0}
+        return original_latency_summary(latencies_ms)
+
+    monkeypatch.setattr(runner_module, "_latency_summary", _latency_summary_with_scenario_breach)
+
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-latency-fail",
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.QUALITY_GATE_FAIL
+    assert result.summary["scenarios_failed"] == 1
+    assert result.failures[0]["failure_type"] == "quality_gate"
+    assert result.failures[0]["scenario_id"] == scenario_id
+    assert "latency_p95_match" in result.failures[0]["failed_gates"]
 
 
 @pytest.mark.asyncio
@@ -449,4 +493,3 @@ def test_testbench_dataset_requires_all_scenarios():
             event_count=len(invalid_scenarios),
             scenarios=invalid_scenarios,
         )
-

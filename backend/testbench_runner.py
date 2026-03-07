@@ -75,6 +75,7 @@ class ScenarioExpectation(BaseModel):
     l2_fallback_action: AccountState = AccountState.NORMAL
     expected_state_path: list[AccountState] | None = None
     expected_l2_action_range: list[AccountState] | None = None
+    max_p95_ms: int = Field(gt=0)
     notes: str = ""
 
     def derived_state_path(self) -> list[AccountState]:
@@ -609,9 +610,7 @@ async def _run_scenario(
     final_state = user_payload.get("state") if isinstance(user_payload, dict) else AccountState.NORMAL.value
 
     latency_stats = _latency_summary(latencies_ms)
-    p95_ok = True
-    if getattr(namespaced.expected, "max_p95_ms", None) is not None:
-        p95_ok = latency_stats["p95"] <= namespaced.expected.max_p95_ms
+    p95_ok = latency_stats["p95"] <= namespaced.expected.max_p95_ms
 
     gates = {
         "l1_rule_match": observed_l1_rules == expected_l1_rules,
@@ -651,6 +650,7 @@ async def _run_scenario(
         "expected_state_path": expected_state_path,
         "observed_state_path": observed_state_path,
         "expected_l2_actions": expected_l2_actions,
+        "max_p95_ms": namespaced.expected.max_p95_ms,
         "observed_l2_action": observed_l2_action,
         "final_state": final_state,
         "request_count": len(latencies_ms),
