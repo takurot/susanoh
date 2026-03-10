@@ -188,6 +188,12 @@ export SUSANOH_TESTBENCH_TIMEOUT_SECONDS=10
 - 出力物: `summary.json`, `failures.json`, `report.md`, `junit.xml`
 - 終了コード: `0=all pass`, `1=quality gate fail`, `2=infra/dependency fail`, `3=invalid fixture`
 
+### Scheduled Workflows
+
+- PRごとの軽量検証: `.github/workflows/ci.yml` の `Backend Testbench (Smoke)` が `junit.xml` をPRチェックへ反映し、artifact も保存します。
+- 日次 Regression: `.github/workflows/testbench-regression.yml` が毎日 `03:00 JST` (`18:00 UTC`) に `local` + `regression` を実行し、決定論的な L2 判定で全シナリオのサマリを保存します。
+- 縮小 Regression-Live: `.github/workflows/testbench-regression-live.yml` が毎週月曜 `05:00 JST` (`20:00 UTC` 日曜) に staging 向けの4シナリオを `live` モードで実行します。必要な staging secrets が未設定の場合はジョブをスキップし、staging が API key 必須構成なら `SUSANOH_TESTBENCH_STAGING_API_KEY` も必須として扱います。
+
 ---
 
 ## API リファレンス
