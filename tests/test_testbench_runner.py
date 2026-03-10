@@ -23,6 +23,7 @@ def _event(
     actor_id: str,
     target_id: str,
     amount: int,
+    market_avg: int = 10_000,
     chat: str | None = None,
     timestamp: str,
 ) -> dict:
@@ -33,7 +34,7 @@ def _event(
         target_id=target_id,
         action_details=ActionDetails(
             currency_amount=amount,
-            market_avg_price=10_000,
+            market_avg_price=market_avg,
         ),
         context_metadata=ContextMetadata(
             actor_level=25,
@@ -307,6 +308,25 @@ async def test_run_testbench_local_writes_artifacts_and_passes(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_testbench_local_regression_fixture_passes(tmp_path):
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=Path("tests/fixtures/testbench"),
+        output_root=tmp_path / "artifacts",
+        run_id="run-regression-fixture",
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.summary["scenarios_total"] == 15
+    assert result.summary["scenarios_failed"] == 0
+    assert result.summary["failure_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_run_testbench_local_ignores_gemini_env(tmp_path, monkeypatch):
     fixture_dir = _write_fixture(tmp_path, scenarios=_passing_scenarios())
     monkeypatch.setenv("GEMINI_API_KEY", "dummy-key")
@@ -422,6 +442,97 @@ async def test_run_testbench_returns_invalid_fixture_exit_code_for_duplicate_sce
     assert result.summary["status"] == "failed"
     assert result.failures[0]["failure_type"] == "invalid_fixture"
     assert "duplicate scenario_id" in result.failures[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_applies_fault_injection_and_reports_fallback(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "gemini_timeout"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_timeout_01",
+            actor_id="acct_fault_sender_01",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-timeout",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    assert result.summary["scenarios_total"] == 1
+
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["scenario_id"] == "fraud_direct_rmt_chat"
+    assert scenario_summary["fault_injection"] == {"type": "gemini_timeout"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert (
+        "Local fallback: API error: Gemini API took too long"
+        in scenario_summary["analysis_reasoning"]
+    )
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=gemini_timeout" in report_text
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_smoke_ignores_fault_injection_metadata(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "gemini_timeout"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_smoke_01",
+            actor_id="acct_fault_sender_01",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SMOKE,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-smoke",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "gemini_timeout"}
+    assert scenario_summary["fault_injection_applied"] is False
+    assert "fault_injection_match" not in scenario_summary["quality_gates"]
+    assert "Local fallback: local testbench profile" in scenario_summary["analysis_reasoning"]
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=gemini_timeout" not in report_text
 
 
 def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):

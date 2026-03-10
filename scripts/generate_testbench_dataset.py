@@ -152,6 +152,9 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "title": "Direct RMT negotiation in chat",
             "pattern_family": "RMT_DIRECT",
             "risk_tier": "high",
+            "fault_injection": {
+                "type": "gemini_timeout",
+            },
             "expected": {
                 "target_id": target,
                 "l1_primary_rules": ["R1", "R3", "R4"],
@@ -196,9 +199,12 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "title": "Layering chain converging to exit wallet",
             "pattern_family": "MONEY_LAUNDERING",
             "risk_tier": "high",
+            "fault_injection": {
+                "type": "gemini_5xx",
+            },
             "expected": {
                 "target_id": target,
-                "l1_primary_rules": ["R1"],
+                "l1_primary_rules": ["R1", "R3"],
                 "l2_fallback_action": "UNDER_SURVEILLANCE",
                 "max_p95_ms": DEFAULT_MAX_P95_MS,
                 "notes": "Multi-hop transfers converge into one exit account.",
@@ -231,7 +237,7 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "expected": {
                 "target_id": target,
                 "l1_primary_rules": ["R1", "R2"],
-                "l2_fallback_action": "BANNED",
+                "l2_fallback_action": "UNDER_SURVEILLANCE",
                 "max_p95_ms": DEFAULT_MAX_P95_MS,
                 "notes": "High transaction count and total amount with low-age senders.",
             },
@@ -364,8 +370,8 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "risk_tier": "high",
             "expected": {
                 "target_id": target,
-                "l1_primary_rules": ["R1", "R4"],
-                "l2_fallback_action": "UNDER_SURVEILLANCE",
+                "l1_primary_rules": ["R1", "R3", "R4"],
+                "l2_fallback_action": "BANNED",
                 "max_p95_ms": DEFAULT_MAX_P95_MS,
                 "notes": "Dormant target suddenly receives high-value bursts from fresh accounts.",
             },
@@ -601,7 +607,7 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
 
     manifest = {
         "dataset": "susanoh-operational-testbench",
-        "version": "v0.1.0",
+        "version": "v0.1.1",
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "seed": seed,
         "scenario_count": len(scenarios),
@@ -643,6 +649,24 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
             "## Files",
             "- `scenarios.json`: scenario-level manifest, expectations (including `max_p95_ms`), and full event sequences.",
             "- `events.jsonl`: flattened stream for replay/soak test ingestion.",
+        ]
+    )
+
+    fault_scenarios = [
+        scenario for scenario in scenarios if isinstance(scenario.get("fault_injection"), dict)
+    ]
+    if fault_scenarios:
+        summary_lines.extend(["", "## Regression Fault Injection"])
+        for scenario in fault_scenarios:
+            summary_lines.append(
+                "- "
+                f"`{scenario['scenario_id']}`: "
+                f"`{scenario['fault_injection']['type']}` "
+                "(applies only to local regression mode)"
+            )
+
+    summary_lines.extend(
+        [
             "",
             "## Regeneration",
             "```bash",

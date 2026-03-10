@@ -186,6 +186,7 @@ export SUSANOH_TESTBENCH_TIMEOUT_SECONDS=10
 
 - 出力先: `artifacts/testbench/<run_id>/`
 - 出力物: `summary.json`, `failures.json`, `report.md`, `junit.xml`
+- `summary.json` の各 scenario には、宣言された `fault_injection` metadata に加えて、その run で実際に適用したかを示す `fault_injection_applied` を含める
 - 終了コード: `0=all pass`, `1=quality gate fail`, `2=infra/dependency fail`, `3=invalid fixture`
 
 ### Scheduled Workflows
