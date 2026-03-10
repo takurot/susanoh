@@ -643,6 +643,14 @@ async def _run_scenario(
     latency_stats = _latency_summary(latencies_ms)
     p95_ok = latency_stats["p95"] <= namespaced.expected.max_p95_ms
 
+    applied_fault_injection = bool(
+        namespaced.fault_injection
+        and namespaced.fault_injection.applies(
+            profile=config.profile,
+            mode=config.mode,
+        )
+    )
+
     gates = {
         "l1_rule_match": observed_l1_rules == expected_l1_rules,
         "state_path_match": observed_state_path == expected_state_path,
@@ -650,10 +658,7 @@ async def _run_scenario(
         "api_availability": api_available,
         "latency_p95_match": p95_ok,
     }
-    if namespaced.fault_injection and namespaced.fault_injection.applies(
-        profile=config.profile,
-        mode=config.mode,
-    ):
+    if applied_fault_injection:
         reasoning = latest_analysis.get("reasoning", "") if latest_analysis else ""
         gates["fault_injection_match"] = (
             isinstance(reasoning, str)
@@ -698,6 +703,7 @@ async def _run_scenario(
             if namespaced.fault_injection is not None
             else None
         ),
+        "fault_injection_applied": applied_fault_injection,
         "analysis_reasoning": latest_analysis.get("reasoning") if latest_analysis else None,
         "request_count": len(latencies_ms),
         "latency_ms": latency_stats,
@@ -768,22 +774,14 @@ async def _run_local_l2_with_fault_injection(
 ):
     import backend.main as main_module
 
-    original_call = main_module.l2._call_gemini
-    original_api_key = os.environ.get("GEMINI_API_KEY")
-
     async def _raise_injected_error(_request, _api_key):
         raise fault_injection.build_exception()
 
-    main_module.l2._call_gemini = _raise_injected_error
-    os.environ["GEMINI_API_KEY"] = "testbench-fault-injection"
-    try:
-        return await main_module.l2.analyze(analysis_req)
-    finally:
-        main_module.l2._call_gemini = original_call
-        if original_api_key is None:
-            os.environ.pop("GEMINI_API_KEY", None)
-        else:
-            os.environ["GEMINI_API_KEY"] = original_api_key
+    return await main_module.l2.analyze_with_overrides(
+        analysis_req,
+        api_key="testbench-fault-injection",
+        gemini_call=_raise_injected_error,
+    )
 
 
 def _latest_target_event(
@@ -989,7 +987,7 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
     for scenario in summary.get("scenarios", []):
         state = "PASS" if scenario["passed"] else "FAIL"
         fault_suffix = ""
-        if scenario.get("fault_injection"):
+        if scenario.get("fault_injection_applied") and scenario.get("fault_injection"):
             fault_suffix = f", fault={scenario['fault_injection']['type']}"
         lines.append(
             f"- `{scenario['scenario_id']}`: {state} "

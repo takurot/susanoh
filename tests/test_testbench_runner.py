@@ -483,11 +483,14 @@ async def test_run_testbench_local_regression_applies_fault_injection_and_report
     scenario_summary = result.summary["scenarios"][0]
     assert scenario_summary["scenario_id"] == "fraud_direct_rmt_chat"
     assert scenario_summary["fault_injection"] == {"type": "gemini_timeout"}
+    assert scenario_summary["fault_injection_applied"] is True
     assert scenario_summary["quality_gates"]["fault_injection_match"] is True
     assert (
         "Local fallback: API error: Gemini API took too long"
         in scenario_summary["analysis_reasoning"]
     )
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=gemini_timeout" in report_text
 
 
 @pytest.mark.asyncio
@@ -525,8 +528,11 @@ async def test_run_testbench_local_smoke_ignores_fault_injection_metadata(tmp_pa
     assert result.exit_code is RunnerExitCode.ALL_PASS
     scenario_summary = result.summary["scenarios"][0]
     assert scenario_summary["fault_injection"] == {"type": "gemini_timeout"}
+    assert scenario_summary["fault_injection_applied"] is False
     assert "fault_injection_match" not in scenario_summary["quality_gates"]
     assert "Local fallback: local testbench profile" in scenario_summary["analysis_reasoning"]
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=gemini_timeout" not in report_text
 
 
 def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):

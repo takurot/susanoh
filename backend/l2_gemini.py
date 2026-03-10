@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import logging
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Optional, TypeAlias
 
 from backend.models import (
     AccountState,
@@ -102,12 +104,10 @@ def build_deterministic_local_result(
 ) -> ArbitrationResult:
     return _local_fallback(request, reason)
 
-
-from typing import TYPE_CHECKING, Optional
-from redis.exceptions import RedisError
-
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+
+GeminiCall: TypeAlias = Callable[[AnalysisRequest, str], Awaitable[ArbitrationResult]]
 
 class L2Engine:
     REDIS_KEY = "susanoh:analyses"
@@ -145,7 +145,34 @@ class L2Engine:
         return result
 
     async def analyze(self, request: AnalysisRequest) -> ArbitrationResult:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        return await self.analyze_with_overrides(request)
+
+    async def analyze_with_overrides(
+        self,
+        request: AnalysisRequest,
+        *,
+        api_key: str | None = None,
+        gemini_call: GeminiCall | None = None,
+    ) -> ArbitrationResult:
+        resolved_api_key = (
+            os.environ.get("GEMINI_API_KEY", "")
+            if api_key is None
+            else api_key
+        )
+        resolved_gemini_call = gemini_call or self._call_gemini
+        return await self._analyze_with_gemini_call(
+            request,
+            api_key=resolved_api_key,
+            gemini_call=resolved_gemini_call,
+        )
+
+    async def _analyze_with_gemini_call(
+        self,
+        request: AnalysisRequest,
+        *,
+        api_key: str,
+        gemini_call: GeminiCall,
+    ) -> ArbitrationResult:
         if not api_key:
             return await self.analyze_deterministically(
                 request,
@@ -153,7 +180,7 @@ class L2Engine:
             )
 
         try:
-            result = await self._call_gemini(request, api_key)
+            result = await gemini_call(request, api_key)
             await self._store_result(result)
             return result
         except Exception as e:

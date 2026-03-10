@@ -170,3 +170,29 @@ async def test_gemini_api_503_service_unavailable():
             os.environ["GEMINI_API_KEY"] = old
         else:
             del os.environ["GEMINI_API_KEY"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_with_overrides_isolates_fault_injection_from_process_state():
+    old = os.environ.pop("GEMINI_API_KEY", None)
+    try:
+        engine = L2Engine()
+
+        async def _raise_timeout(request, api_key):
+            assert request.user_profile.user_id == "b"
+            assert api_key == "override-key"
+            raise TimeoutError("Gemini API took too long")
+
+        result = await engine.analyze_with_overrides(
+            _make_request(),
+            api_key="override-key",
+            gemini_call=_raise_timeout,
+        )
+
+        assert "Local fallback: API error" in result.reasoning
+        assert "Gemini API took too long" in result.reasoning
+        assert "GEMINI_API_KEY" not in os.environ
+        assert "_call_gemini" not in engine.__dict__
+    finally:
+        if old is not None:
+            os.environ["GEMINI_API_KEY"] = old
