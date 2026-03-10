@@ -45,29 +45,10 @@ jobs:
       - name: Validate staging configuration
         id: config
         run: |
-          missing=()
-          if [ -z "$SUSANOH_TESTBENCH_STAGING_BASE_URL" ]; then
-            missing+=("SUSANOH_TESTBENCH_STAGING_BASE_URL")
-          fi
-          if [ -z "$SUSANOH_TESTBENCH_STAGING_PASSWORD" ]; then
-            missing+=("SUSANOH_TESTBENCH_STAGING_PASSWORD")
-          fi
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            {
-              echo "Regression-Live skipped."
-              echo
-              echo "Missing required secrets: ${missing[*]}"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if [ -z "$SUSANOH_TESTBENCH_STAGING_USERNAME" ]; then
-            echo "SUSANOH_TESTBENCH_STAGING_USERNAME=admin" >> "$GITHUB_ENV"
-          fi
-
-          echo "configured=true" >> "$GITHUB_OUTPUT"
+          python -m backend.testbench_schedule_validation \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --github-env "$GITHUB_ENV"
 
       - name: Run Regression-Live Testbench
         if: steps.config.outputs.configured == 'true'
