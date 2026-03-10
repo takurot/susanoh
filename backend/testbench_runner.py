@@ -45,6 +45,34 @@ class RunnerExitCode(IntEnum):
     INVALID_FIXTURE = 3
 
 
+class FaultInjectionType(str, Enum):
+    GEMINI_TIMEOUT = "gemini_timeout"
+    GEMINI_429 = "gemini_429"
+    GEMINI_5XX = "gemini_5xx"
+
+
+class ScenarioFaultInjection(BaseModel):
+    type: FaultInjectionType
+
+    def applies(self, *, profile: RunnerProfile, mode: TestbenchMode) -> bool:
+        return profile is RunnerProfile.LOCAL and mode is TestbenchMode.REGRESSION
+
+    def error_message(self) -> str:
+        if self.type is FaultInjectionType.GEMINI_TIMEOUT:
+            return "Gemini API took too long"
+        if self.type is FaultInjectionType.GEMINI_429:
+            return "429 Too Many Requests"
+        return "503 Service Unavailable"
+
+    def expected_reason_substring(self) -> str:
+        return f"Local fallback: API error: {self.error_message()}"
+
+    def build_exception(self) -> Exception:
+        if self.type is FaultInjectionType.GEMINI_TIMEOUT:
+            return TimeoutError(self.error_message())
+        return RuntimeError(self.error_message())
+
+
 @dataclass(frozen=True)
 class RunnerConfig:
     profile: RunnerProfile
@@ -107,6 +135,7 @@ class ScenarioFixture(BaseModel):
     pattern_family: str
     risk_tier: str
     expected: ScenarioExpectation
+    fault_injection: ScenarioFaultInjection | None = None
     events: list[GameEventLog] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -471,6 +500,8 @@ async def _run_scenario(
             analysis_payload, analysis_latency_ms, analysis_error = await _run_local_l2(
                 scenario=namespaced,
                 event_pairs=event_pairs,
+                mode=config.mode,
+                fault_injection=namespaced.fault_injection,
             )
         else:
             analysis_payload, analysis_latency_ms, analysis_error = await _request_json(
@@ -619,6 +650,15 @@ async def _run_scenario(
         "api_availability": api_available,
         "latency_p95_match": p95_ok,
     }
+    if namespaced.fault_injection and namespaced.fault_injection.applies(
+        profile=config.profile,
+        mode=config.mode,
+    ):
+        reasoning = latest_analysis.get("reasoning", "") if latest_analysis else ""
+        gates["fault_injection_match"] = (
+            isinstance(reasoning, str)
+            and namespaced.fault_injection.expected_reason_substring() in reasoning
+        )
     failed_gates = [name for name, ok in gates.items() if not ok]
 
     expected_final_state = expected_state_path[-1] if expected_state_path else AccountState.NORMAL.value
@@ -653,6 +693,12 @@ async def _run_scenario(
         "max_p95_ms": namespaced.expected.max_p95_ms,
         "observed_l2_action": observed_l2_action,
         "final_state": final_state,
+        "fault_injection": (
+            namespaced.fault_injection.model_dump(mode="json")
+            if namespaced.fault_injection is not None
+            else None
+        ),
+        "analysis_reasoning": latest_analysis.get("reasoning") if latest_analysis else None,
         "request_count": len(latencies_ms),
         "latency_ms": latency_stats,
         "quality_gates": gates,
@@ -668,6 +714,8 @@ async def _run_local_l2(
     *,
     scenario: ScenarioFixture,
     event_pairs: list[tuple[GameEventLog, dict[str, Any]]],
+    mode: TestbenchMode,
+    fault_injection: ScenarioFaultInjection | None,
 ) -> tuple[dict[str, Any] | None, float, str | None]:
     import backend.main as main_module
 
@@ -689,10 +737,19 @@ async def _run_local_l2(
             triggered_rules,
             current_state,
         )
-        verdict = await main_module.l2.analyze_deterministically(
-            analysis_req,
-            reason="local testbench profile",
-        )
+        if fault_injection is not None and fault_injection.applies(
+            profile=RunnerProfile.LOCAL,
+            mode=mode,
+        ):
+            verdict = await _run_local_l2_with_fault_injection(
+                analysis_req=analysis_req,
+                fault_injection=fault_injection,
+            )
+        else:
+            verdict = await main_module.l2.analyze_deterministically(
+                analysis_req,
+                reason="local testbench profile",
+            )
         await main_module.sm.apply_l2_verdict(
             verdict.target_id,
             verdict.recommended_action,
@@ -702,6 +759,31 @@ async def _run_local_l2(
         return verdict.model_dump(mode="json"), round((time.perf_counter() - started) * 1000.0, 2), None
     except Exception as exc:
         return None, round((time.perf_counter() - started) * 1000.0, 2), f"local L2 execution failed: {exc}"
+
+
+async def _run_local_l2_with_fault_injection(
+    *,
+    analysis_req: Any,
+    fault_injection: ScenarioFaultInjection,
+):
+    import backend.main as main_module
+
+    original_call = main_module.l2._call_gemini
+    original_api_key = os.environ.get("GEMINI_API_KEY")
+
+    async def _raise_injected_error(_request, _api_key):
+        raise fault_injection.build_exception()
+
+    main_module.l2._call_gemini = _raise_injected_error
+    os.environ["GEMINI_API_KEY"] = "testbench-fault-injection"
+    try:
+        return await main_module.l2.analyze(analysis_req)
+    finally:
+        main_module.l2._call_gemini = original_call
+        if original_api_key is None:
+            os.environ.pop("GEMINI_API_KEY", None)
+        else:
+            os.environ["GEMINI_API_KEY"] = original_api_key
 
 
 def _latest_target_event(
@@ -906,9 +988,12 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
 
     for scenario in summary.get("scenarios", []):
         state = "PASS" if scenario["passed"] else "FAIL"
+        fault_suffix = ""
+        if scenario.get("fault_injection"):
+            fault_suffix = f", fault={scenario['fault_injection']['type']}"
         lines.append(
             f"- `{scenario['scenario_id']}`: {state} "
-            f"(target=`{scenario['target_id']}`, failed_gates={scenario['failed_gates']})"
+            f"(target=`{scenario['target_id']}`, failed_gates={scenario['failed_gates']}{fault_suffix})"
         )
 
     if failures:
