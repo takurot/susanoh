@@ -237,6 +237,20 @@ def test_load_runner_config_staging_requires_base_url_and_password(tmp_path):
         )
 
 
+def test_load_runner_config_ignores_soak_iterations_outside_soak_mode(tmp_path):
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "oops"},
+        fixtures_dir=tmp_path / "fixtures",
+        output_root=tmp_path / "artifacts",
+        run_id="run-regression",
+    )
+
+    assert config.mode is TestbenchMode.REGRESSION
+    assert config.soak_iterations is None
+
+
 def test_apply_run_namespace_suffixes_targets_and_event_ids():
     fixture_dir = Path("/tmp")
     _ = fixture_dir  # keep the test body symmetrical with other fixture helpers
@@ -604,3 +618,152 @@ def test_testbench_dataset_requires_all_scenarios():
             event_count=len(invalid_scenarios),
             scenarios=invalid_scenarios,
         )
+
+
+def test_load_runner_config_soak_iterations_can_be_overridden(tmp_path):
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "3"},
+        fixtures_dir=tmp_path / "fixtures",
+        output_root=tmp_path / "artifacts",
+        run_id="run-soak-config",
+    )
+
+    assert config.mode is TestbenchMode.SOAK
+    assert config.soak_iterations == 3
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_soak_replays_iterations_and_aggregates_metrics(tmp_path):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    output_root = tmp_path / "artifacts"
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "2"},
+        fixtures_dir=fixture_dir,
+        output_root=output_root,
+        run_id="run-soak-pass",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.summary["mode"] == "soak"
+    assert result.summary["scenarios_total"] == 2
+    assert result.summary["soak"]["iterations_planned"] == 2
+    assert result.summary["soak"]["state_drift_count"] == 0
+    assert result.summary["soak"]["event_replay_count"] == 2
+    assert "peak_rss_mb" in result.summary["soak"]
+    assert "peak_rss_growth_mb" in result.summary["soak"]
+    assert len(result.summary["scenarios"]) == 1
+
+    scenario = result.summary["scenarios"][0]
+    assert scenario["scenario_id"] == "fraud_smurfing_fan_in"
+    assert scenario["iterations"] == 2
+    assert scenario["passed_iterations"] == 2
+    assert scenario["failed_iterations"] == 0
+    assert scenario["state_drift_count"] == 0
+    assert scenario["request_count"] > 0
+    assert scenario["iteration_latency_ms"]["first_p95"] >= 0.0
+    assert scenario["iteration_latency_ms"]["last_p95"] >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_soak_detects_state_drift(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "2"},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-soak-drift",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    scenario_calls = 0
+
+    async def _fake_run_scenario(*, client, config, scenario, auth_headers, event_headers):
+        del client, config, auth_headers, event_headers
+        nonlocal scenario_calls
+        scenario_calls += 1
+        observed_state_path = (
+            ["RESTRICTED_WITHDRAWAL", "NORMAL"]
+            if scenario_calls == 1
+            else ["RESTRICTED_WITHDRAWAL", "UNDER_SURVEILLANCE"]
+        )
+        observed_l2_action = "NORMAL" if scenario_calls == 1 else "UNDER_SURVEILLANCE"
+        return {
+            "scenario": {
+                "scenario_id": scenario.scenario_id,
+                "title": scenario.title,
+                "risk_tier": scenario.risk_tier,
+                "target_id": f"{scenario.expected.target_id}__{scenario_calls}",
+                "passed": True,
+                "failed_gates": [],
+                "expected_l1_rules": [],
+                "observed_l1_rules": [],
+                "expected_state_path": ["NORMAL"],
+                "observed_state_path": observed_state_path,
+                "expected_l2_actions": ["NORMAL", "UNDER_SURVEILLANCE"],
+                "max_p95_ms": scenario.expected.max_p95_ms,
+                "observed_l2_action": observed_l2_action,
+                "final_state": observed_state_path[-1],
+                "fault_injection": None,
+                "fault_injection_applied": False,
+                "analysis_reasoning": None,
+                "request_count": 1,
+                "latency_ms": {"p50": 8.0, "p95": 9.0, "p99": 10.0},
+                "quality_gates": {
+                    "l1_rule_match": True,
+                    "state_path_match": True,
+                    "l2_action_range_match": True,
+                    "api_availability": True,
+                    "latency_p95_match": True,
+                },
+            },
+            "failures": [],
+            "latencies_ms": [9.0],
+        }
+
+    monkeypatch.setattr("backend.testbench_runner._run_scenario", _fake_run_scenario)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.summary["soak"]["iterations_planned"] == 2
+    assert result.summary["soak"]["state_drift_count"] == 1
+    assert result.summary["scenarios"][0]["state_drift_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_soak_paces_replay_against_target_tps(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "2"},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-soak-paced",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    pace_calls: list[tuple[int, float]] = []
+
+    async def _fake_pace_soak_replay(*, replayed_event_count, started_at, target_tps):
+        del started_at
+        pace_calls.append((replayed_event_count, target_tps))
+
+    monkeypatch.setattr("backend.testbench_runner._pace_soak_replay", _fake_pace_soak_replay)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert pace_calls == [(1, 40.0), (2, 40.0)]
