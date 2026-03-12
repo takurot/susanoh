@@ -239,7 +239,11 @@ def load_runner_config(
     src = os.environ if env is None else env
     policy = load_operational_testbench_policy()
     timeout_seconds = _load_timeout_seconds(src)
-    soak_iterations_value = _load_soak_iterations(src, explicit=soak_iterations)
+    soak_iterations_value = (
+        _load_soak_iterations(src, explicit=soak_iterations)
+        if mode is TestbenchMode.SOAK
+        else None
+    )
 
     if profile is RunnerProfile.LOCAL:
         api_key = _first_non_empty(
@@ -409,6 +413,21 @@ def _peak_rss_mb() -> float | None:
     return round(float(rss) / float(divisor), 2)
 
 
+async def _pace_soak_replay(
+    *,
+    replayed_event_count: int,
+    started_at: float,
+    target_tps: float,
+) -> None:
+    if replayed_event_count <= 0 or target_tps <= 0:
+        return
+
+    expected_elapsed_seconds = replayed_event_count / target_tps
+    remaining_seconds = expected_elapsed_seconds - (time.perf_counter() - started_at)
+    if remaining_seconds > 0:
+        await asyncio.sleep(remaining_seconds)
+
+
 async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
     artifacts_dir = config.output_root / config.run_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -499,6 +518,8 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                     )
                     soak_aggregates: dict[str, dict[str, Any]] = {}
                     peak_rss_before_mb = _peak_rss_mb()
+                    soak_started_at = time.perf_counter()
+                    replayed_event_count = 0
                     for iteration in range(1, soak_plan.iterations_planned + 1):
                         iteration_config = replace(
                             config,
@@ -521,6 +542,12 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                                 _annotate_failures_for_iteration(result["failures"], iteration=iteration)
                             )
                             latencies_ms.extend(result["latencies_ms"])
+                            replayed_event_count += len(scenario.events)
+                            await _pace_soak_replay(
+                                replayed_event_count=replayed_event_count,
+                                started_at=soak_started_at,
+                                target_tps=soak_plan.target_tps,
+                            )
 
                     scenario_results = _finalize_soak_scenario_results(soak_aggregates)
                     peak_rss_after_mb = _peak_rss_mb()

@@ -237,6 +237,20 @@ def test_load_runner_config_staging_requires_base_url_and_password(tmp_path):
         )
 
 
+def test_load_runner_config_ignores_soak_iterations_outside_soak_mode(tmp_path):
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "oops"},
+        fixtures_dir=tmp_path / "fixtures",
+        output_root=tmp_path / "artifacts",
+        run_id="run-regression",
+    )
+
+    assert config.mode is TestbenchMode.REGRESSION
+    assert config.soak_iterations is None
+
+
 def test_apply_run_namespace_suffixes_targets_and_event_ids():
     fixture_dir = Path("/tmp")
     _ = fixture_dir  # keep the test body symmetrical with other fixture helpers
@@ -725,3 +739,31 @@ async def test_run_testbench_local_soak_detects_state_drift(tmp_path, monkeypatc
     assert result.summary["soak"]["iterations_planned"] == 2
     assert result.summary["soak"]["state_drift_count"] == 1
     assert result.summary["scenarios"][0]["state_drift_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_soak_paces_replay_against_target_tps(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "2"},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-soak-paced",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    pace_calls: list[tuple[int, float]] = []
+
+    async def _fake_pace_soak_replay(*, replayed_event_count, started_at, target_tps):
+        del started_at
+        pace_calls.append((replayed_event_count, target_tps))
+
+    monkeypatch.setattr("backend.testbench_runner._pace_soak_replay", _fake_pace_soak_replay)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert pace_calls == [(1, 40.0), (2, 40.0)]
