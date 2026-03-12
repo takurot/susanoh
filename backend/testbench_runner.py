@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 import httpx
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from backend import live_api_verification
 from backend.models import AccountState, GameEventLog
 from backend.testbench_policy import (
     FailureDisposition,
@@ -588,6 +589,14 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                         failures.extend(result["failures"])
                         latencies_ms.extend(result["latencies_ms"])
 
+    if config.profile is RunnerProfile.STAGING and config.mode is TestbenchMode.LIVE:
+        live_summary, live_failures, live_latency_ms = await _run_live_verification_probe(config)
+        failures.extend(live_failures)
+        if live_latency_ms > 0:
+            latencies_ms.append(live_latency_ms)
+        extra_summary = dict(extra_summary or {})
+        extra_summary["live_verification"] = live_summary
+
     exit_code = _determine_exit_code(failures)
     summary = _build_terminal_summary(
         config=config,
@@ -872,6 +881,68 @@ async def _run_scenario(
         "failures": failures,
         "latencies_ms": latencies_ms,
     }
+
+
+async def _run_live_verification_probe(
+    config: RunnerConfig,
+) -> tuple[dict[str, Any], list[dict[str, Any]], float]:
+    verification_config = live_api_verification.LiveAPIVerificationConfig(
+        base_url=config.base_url,
+        username=config.username,
+        password=config.password,
+        api_key=config.api_key,
+        timeout_seconds=config.timeout_seconds,
+    )
+    started = time.perf_counter()
+
+    try:
+        result = await live_api_verification.run_live_api_verification(verification_config)
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+        failure = _build_failure(
+            failure_type=FailureType.INFRA_DEPENDENCY,
+            disposition=FailureDisposition.FAIL_AFTER_RETRY,
+            mode=config.mode,
+            scenario_id=None,
+            message=f"live API verification failed: {exc}",
+            failed_gates=["live_verification"],
+        )
+        return (
+            {
+                "ok": False,
+                "latency_ms": latency_ms,
+                "target_id": None,
+                "risk_score": None,
+                "recommended_action": None,
+                "error": str(exc),
+            },
+            [failure],
+            latency_ms,
+        )
+
+    latency_ms = round(float(result.get("latency_ms", 0.0)), 2)
+    live_summary = {
+        "ok": result.get("ok") is True,
+        "latency_ms": latency_ms,
+        "target_id": result.get("target_id"),
+        "risk_score": result.get("risk_score"),
+        "recommended_action": result.get("recommended_action"),
+        "error": None,
+    }
+    if live_summary["ok"]:
+        return live_summary, [], latency_ms
+
+    error_message = str(result.get("error") or "live API verification returned unsuccessful result")
+    live_summary["error"] = error_message
+    failure = _build_failure(
+        failure_type=FailureType.INFRA_DEPENDENCY,
+        disposition=FailureDisposition.FAIL_AFTER_RETRY,
+        mode=config.mode,
+        scenario_id=None,
+        message=f"live API verification failed: {error_message}",
+        failed_gates=["live_verification"],
+    )
+    return live_summary, [failure], latency_ms
 
 
 def _record_soak_execution(
@@ -1232,6 +1303,7 @@ def _build_terminal_summary(
         success_rate >= slo.min_success_rate
         and latency_summary["p95"] <= float(slo.max_p95_latency_ms)
         and failed <= slo.max_failures
+        and not failures
     )
 
     summary = {
@@ -1320,6 +1392,27 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
             lines.append(f"- Peak RSS Growth: `{peak_rss_growth_mb}` MiB")
         lines.append("")
 
+    live_verification = summary.get("live_verification")
+    if isinstance(live_verification, Mapping):
+        status = "PASS" if live_verification.get("ok") else "FAIL"
+        lines.extend(
+            [
+                "## Live Verification",
+                "",
+                f"- Status: `{status}`",
+                f"- Latency: `{live_verification.get('latency_ms', 0.0)}` ms",
+            ]
+        )
+        if live_verification.get("target_id"):
+            lines.append(f"- Target: `{live_verification['target_id']}`")
+        if live_verification.get("risk_score") is not None:
+            lines.append(f"- Risk Score: `{live_verification['risk_score']}`")
+        if live_verification.get("recommended_action"):
+            lines.append(f"- Recommended Action: `{live_verification['recommended_action']}`")
+        if live_verification.get("error"):
+            lines.append(f"- Error: `{live_verification['error']}`")
+        lines.append("")
+
     lines.extend(["## Scenarios", ""])
 
     for scenario in summary.get("scenarios", []):
@@ -1353,13 +1446,24 @@ def _build_junit_xml(summary: Mapping[str, Any], failures: Sequence[Mapping[str,
     for failure in failures:
         failure_map.setdefault(failure.get("scenario_id"), []).append(failure)
 
+    live_verification = summary.get("live_verification")
+    live_case_count = 1 if isinstance(live_verification, Mapping) else 0
+    has_live_failure = bool(isinstance(live_verification, Mapping) and not live_verification.get("ok"))
+    has_live_failure_record = any(
+        failure.get("scenario_id") is None
+        and str(failure.get("message", "")).startswith("live API verification failed:")
+        for failure in failures
+    )
+    error_count = sum(1 for failure in failures if failure["failure_type"] != FailureType.QUALITY_GATE.value)
+    if has_live_failure and not has_live_failure_record:
+        error_count += 1
     testsuite = ET.Element(
         "testsuite",
         attrib={
             "name": "susanoh-operational-testbench",
-            "tests": str(len(summary.get("scenarios", []))),
+            "tests": str(len(summary.get("scenarios", [])) + live_case_count),
             "failures": str(sum(1 for scenario in summary.get("scenarios", []) if not scenario["passed"])),
-            "errors": str(sum(1 for failure in failures if failure["failure_type"] != FailureType.QUALITY_GATE.value)),
+            "errors": str(error_count),
         },
     )
 
@@ -1380,6 +1484,26 @@ def _build_junit_xml(summary: Mapping[str, Any], failures: Sequence[Mapping[str,
                 attrib={"message": failure["failure_type"]},
             )
             element.text = failure["message"]
+
+    if isinstance(live_verification, Mapping):
+        testcase = ET.SubElement(
+            testsuite,
+            "testcase",
+            attrib={
+                "classname": f"{summary['profile']}.{summary['mode']}",
+                "name": "live_api_verification",
+            },
+        )
+        if not live_verification.get("ok"):
+            element = ET.SubElement(
+                testcase,
+                "error",
+                attrib={"message": FailureType.INFRA_DEPENDENCY.value},
+            )
+            element.text = str(
+                live_verification.get("error")
+                or "live API verification failed"
+            )
 
     return ET.tostring(testsuite, encoding="unicode")
 

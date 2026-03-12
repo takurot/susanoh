@@ -207,6 +207,42 @@ def _passing_scenarios_original() -> list[dict]:
     ]
 
 
+class _DummyAsyncClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
+def _staging_request_stub(*, target_id: str):
+    async def _request_json(
+        *,
+        client,
+        method,
+        path,
+        retry_attempts,
+        timeout_seconds,
+        headers=None,
+        data=None,
+        json_body=None,
+    ):
+        del client, retry_attempts, timeout_seconds, headers, data, json_body
+        if method == "POST" and path == "/api/v1/auth/token":
+            return {"access_token": "jwt-token"}, 11.0, None
+        if method == "POST" and path == "/api/v1/events":
+            return {"triggered_rules": []}, 12.0, None
+        if method == "GET" and path == f"/api/v1/users/{target_id}":
+            return {"state": "NORMAL"}, 13.0, None
+        if method == "GET" and path == "/api/v1/transitions?limit=200":
+            return [], 14.0, None
+        if method == "GET" and path == "/api/v1/analyses?limit=100":
+            return [], 15.0, None
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    return _request_json
+
+
 def test_load_runner_config_local_defaults(tmp_path):
     config = load_runner_config(
         profile=RunnerProfile.LOCAL,
@@ -767,3 +803,109 @@ async def test_run_testbench_local_soak_paces_replay_against_target_tps(tmp_path
 
     assert result.exit_code is RunnerExitCode.ALL_PASS
     assert pace_calls == [(1, 40.0), (2, 40.0)]
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_staging_live_includes_live_verification_in_artifacts(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.STAGING,
+        mode=TestbenchMode.LIVE,
+        env={
+            "SUSANOH_TESTBENCH_STAGING_BASE_URL": "https://staging.example.com",
+            "SUSANOH_TESTBENCH_STAGING_PASSWORD": "secret",
+        },
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-live",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+    target_id = "acct_target_fraud_smurfing_fan_in__run-live"
+
+    monkeypatch.setattr("backend.testbench_runner._build_http_client", lambda config: _DummyAsyncClient())
+    monkeypatch.setattr("backend.testbench_runner._request_json", _staging_request_stub(target_id=target_id))
+
+    async def _fake_live_api_verification(config):
+        assert config.base_url == "https://staging.example.com"
+        assert config.username == "admin"
+        assert config.password == "secret"
+        assert config.api_key is None
+        return {
+            "ok": True,
+            "latency_ms": 321.0,
+            "target_id": "live_check_target",
+            "risk_score": 64,
+            "recommended_action": "UNDER_SURVEILLANCE",
+        }
+
+    monkeypatch.setattr("backend.live_api_verification.run_live_api_verification", _fake_live_api_verification)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.summary["status"] == "passed"
+    assert result.summary["live_verification"]["ok"] is True
+    assert result.summary["live_verification"]["latency_ms"] == 321.0
+    assert result.summary["live_verification"]["recommended_action"] == "UNDER_SURVEILLANCE"
+
+    summary_payload = json.loads((result.artifacts_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary_payload["live_verification"]["risk_score"] == 64
+
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Live Verification" in report_text
+    assert "live_check_target" in report_text
+    assert "UNDER_SURVEILLANCE" in report_text
+
+    root = ET.fromstring((result.artifacts_dir / "junit.xml").read_text(encoding="utf-8"))
+    assert root.attrib["tests"] == "2"
+    testcase_names = {testcase.attrib["name"] for testcase in root.findall("testcase")}
+    assert testcase_names == {"fraud_smurfing_fan_in", "live_api_verification"}
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_staging_live_records_live_verification_failure(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.STAGING,
+        mode=TestbenchMode.LIVE,
+        env={
+            "SUSANOH_TESTBENCH_STAGING_BASE_URL": "https://staging.example.com",
+            "SUSANOH_TESTBENCH_STAGING_PASSWORD": "secret",
+        },
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-live-fail",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+    target_id = "acct_target_fraud_smurfing_fan_in__run-live-fail"
+
+    monkeypatch.setattr("backend.testbench_runner._build_http_client", lambda config: _DummyAsyncClient())
+    monkeypatch.setattr("backend.testbench_runner._request_json", _staging_request_stub(target_id=target_id))
+
+    async def _failing_live_api_verification(config):
+        del config
+        raise RuntimeError("Gemini API unavailable")
+
+    monkeypatch.setattr("backend.live_api_verification.run_live_api_verification", _failing_live_api_verification)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.INFRA_DEPENDENCY_FAIL
+    assert result.summary["status"] == "failed"
+    assert result.summary["live_verification"]["ok"] is False
+    assert "Gemini API unavailable" in result.summary["live_verification"]["error"]
+    assert result.failures[-1]["failure_type"] == "infra_dependency"
+    assert result.failures[-1]["scenario_id"] is None
+    assert "live API verification failed" in result.failures[-1]["message"]
+
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Live Verification" in report_text
+    assert "Gemini API unavailable" in report_text
+
+    root = ET.fromstring((result.artifacts_dir / "junit.xml").read_text(encoding="utf-8"))
+    testcase = next(testcase for testcase in root.findall("testcase") if testcase.attrib["name"] == "live_api_verification")
+    error = testcase.find("error")
+    assert error is not None
+    assert "Gemini API unavailable" in (error.text or "")

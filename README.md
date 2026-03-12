@@ -131,6 +131,7 @@ export SUSANOH_STAGING_TIMEOUT_SECONDS=10
 ```
 
 `cron` 等で定期実行する場合は、同コマンドをそのままジョブに登録してください。  
+GitHub Actions の `Regression-Live` lane では、この probe と `backend.testbench_runner --mode live` の scenario 結果を同じ artifact/report に集約します。  
 あわせて、ライブ疎通テスト（`pytest`）は次で実行できます。
 
 ```bash
@@ -182,6 +183,9 @@ export SUSANOH_TESTBENCH_TIMEOUT_SECONDS=10
   --scenario fraud_smurfing_fan_in
 ```
 
+`staging + live` では、選択した scenario replay に加えて `backend.live_api_verification` の probe も自動実行されます。  
+artifact の `summary.json` には `live_verification` セクションが追加され、`report.md` / `junit.xml` にも同じ結果が反映されます。
+
 ### Artifacts And Exit Codes
 
 - 出力先: `artifacts/testbench/<run_id>/`
@@ -193,7 +197,7 @@ export SUSANOH_TESTBENCH_TIMEOUT_SECONDS=10
 
 - PRごとの軽量検証: `.github/workflows/ci.yml` の `Backend Testbench (Smoke)` が `junit.xml` をPRチェックへ反映し、artifact も保存します。
 - 日次 Regression: `.github/workflows/testbench-regression.yml` が毎日 `03:00 JST` (`18:00 UTC`) に `local` + `regression` を実行し、決定論的な L2 判定で全シナリオのサマリを保存します。
-- 縮小 Regression-Live: `.github/workflows/testbench-regression-live.yml` が毎週月曜 `05:00 JST` (`20:00 UTC` 日曜) に staging 向けの4シナリオを `live` モードで実行します。必要な staging secrets が未設定の場合はジョブをスキップし、staging が API key 必須構成なら `SUSANOH_TESTBENCH_STAGING_API_KEY` も必須として扱います。
+- 縮小 Regression-Live: `.github/workflows/testbench-regression-live.yml` が毎週月曜 `05:00 JST` (`20:00 UTC` 日曜) に staging 向けの4シナリオを `live` モードで実行します。必要な staging secrets が未設定の場合はジョブをスキップし、staging が API key 必須構成なら `SUSANOH_TESTBENCH_STAGING_API_KEY` も必須として扱います。出力 artifact には scenario 結果に加えて `Live Verification` セクションも含まれます。
 
 ---
 
