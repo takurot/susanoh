@@ -845,6 +845,8 @@ async def test_run_testbench_staging_live_includes_live_verification_in_artifact
 
     assert result.exit_code is RunnerExitCode.ALL_PASS
     assert result.summary["status"] == "passed"
+    assert result.summary["request_count"] == 4
+    assert result.summary["latency_ms"]["p95"] == 14.85
     assert result.summary["live_verification"]["ok"] is True
     assert result.summary["live_verification"]["latency_ms"] == 321.0
     assert result.summary["live_verification"]["recommended_action"] == "UNDER_SURVEILLANCE"
@@ -894,6 +896,8 @@ async def test_run_testbench_staging_live_records_live_verification_failure(tmp_
 
     assert result.exit_code is RunnerExitCode.INFRA_DEPENDENCY_FAIL
     assert result.summary["status"] == "failed"
+    assert result.summary["request_count"] == 4
+    assert result.summary["latency_ms"]["p95"] == 14.85
     assert result.summary["live_verification"]["ok"] is False
     assert "Gemini API unavailable" in result.summary["live_verification"]["error"]
     assert result.failures[-1]["failure_type"] == "infra_dependency"
@@ -909,3 +913,63 @@ async def test_run_testbench_staging_live_records_live_verification_failure(tmp_
     error = testcase.find("error")
     assert error is not None
     assert "Gemini API unavailable" in (error.text or "")
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_staging_live_skips_probe_when_initial_auth_fails(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.STAGING,
+        mode=TestbenchMode.LIVE,
+        env={
+            "SUSANOH_TESTBENCH_STAGING_BASE_URL": "https://staging.example.com",
+            "SUSANOH_TESTBENCH_STAGING_PASSWORD": "secret",
+        },
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-live-auth-fail",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    monkeypatch.setattr("backend.testbench_runner._build_http_client", lambda config: _DummyAsyncClient())
+
+    async def _failing_auth_request_json(
+        *,
+        client,
+        method,
+        path,
+        retry_attempts,
+        timeout_seconds,
+        headers=None,
+        data=None,
+        json_body=None,
+    ):
+        del client, retry_attempts, timeout_seconds, headers, data, json_body
+        if method == "POST" and path == "/api/v1/auth/token":
+            return None, 11.0, "POST /api/v1/auth/token failed after 3 attempt(s): 401 Unauthorized"
+        raise AssertionError(f"Unexpected request after auth failure: {method} {path}")
+
+    probe_called = False
+
+    async def _unexpected_live_api_verification(config):
+        del config
+        nonlocal probe_called
+        probe_called = True
+        raise AssertionError("live verification should be skipped when the main replay never authenticates")
+
+    monkeypatch.setattr("backend.testbench_runner._request_json", _failing_auth_request_json)
+    monkeypatch.setattr("backend.live_api_verification.run_live_api_verification", _unexpected_live_api_verification)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.INFRA_DEPENDENCY_FAIL
+    assert result.summary["status"] == "failed"
+    assert result.summary["scenarios_total"] == 0
+    assert result.summary["request_count"] == 0
+    assert "live_verification" not in result.summary
+    assert probe_called is False
+
+    root = ET.fromstring((result.artifacts_dir / "junit.xml").read_text(encoding="utf-8"))
+    assert root.attrib["tests"] == "0"
+    assert root.attrib["errors"] == "1"

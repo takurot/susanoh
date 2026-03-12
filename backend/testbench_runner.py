@@ -589,11 +589,13 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                         failures.extend(result["failures"])
                         latencies_ms.extend(result["latencies_ms"])
 
-    if config.profile is RunnerProfile.STAGING and config.mode is TestbenchMode.LIVE:
-        live_summary, live_failures, live_latency_ms = await _run_live_verification_probe(config)
+    if (
+        config.profile is RunnerProfile.STAGING
+        and config.mode is TestbenchMode.LIVE
+        and scenario_results
+    ):
+        live_summary, live_failures = await _run_live_verification_probe(config)
         failures.extend(live_failures)
-        if live_latency_ms > 0:
-            latencies_ms.append(live_latency_ms)
         extra_summary = dict(extra_summary or {})
         extra_summary["live_verification"] = live_summary
 
@@ -885,7 +887,7 @@ async def _run_scenario(
 
 async def _run_live_verification_probe(
     config: RunnerConfig,
-) -> tuple[dict[str, Any], list[dict[str, Any]], float]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     verification_config = live_api_verification.LiveAPIVerificationConfig(
         base_url=config.base_url,
         username=config.username,
@@ -917,7 +919,6 @@ async def _run_live_verification_probe(
                 "error": str(exc),
             },
             [failure],
-            latency_ms,
         )
 
     latency_ms = round(float(result.get("latency_ms", 0.0)), 2)
@@ -930,7 +931,7 @@ async def _run_live_verification_probe(
         "error": None,
     }
     if live_summary["ok"]:
-        return live_summary, [], latency_ms
+        return live_summary, []
 
     error_message = str(result.get("error") or "live API verification returned unsuccessful result")
     live_summary["error"] = error_message
@@ -942,7 +943,7 @@ async def _run_live_verification_probe(
         message=f"live API verification failed: {error_message}",
         failed_gates=["live_verification"],
     )
-    return live_summary, [failure], latency_ms
+    return live_summary, [failure]
 
 
 def _record_soak_execution(
