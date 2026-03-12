@@ -5,10 +5,11 @@ import asyncio
 import json
 import math
 import os
+import sys
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from pathlib import Path
@@ -87,6 +88,7 @@ class RunnerConfig:
     output_root: Path
     run_id: str
     selected_scenarios: tuple[str, ...]
+    soak_iterations: int | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,16 @@ class TestbenchRunResult:
     failures: list[dict[str, Any]]
     artifacts_dir: Path
     exit_code: RunnerExitCode
+
+
+@dataclass(frozen=True)
+class SoakReplayPlan:
+    iterations_planned: int
+    target_tps: float
+    duration_minutes: int
+    machine_profile: str
+    scenario_execution_count: int
+    event_replay_count: int
 
 
 class ScenarioExpectation(BaseModel):
@@ -222,10 +234,16 @@ def load_runner_config(
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     run_id: str | None = None,
     selected_scenarios: Sequence[str] | None = None,
+    soak_iterations: int | None = None,
 ) -> RunnerConfig:
     src = os.environ if env is None else env
     policy = load_operational_testbench_policy()
     timeout_seconds = _load_timeout_seconds(src)
+    soak_iterations_value = (
+        _load_soak_iterations(src, explicit=soak_iterations)
+        if mode is TestbenchMode.SOAK
+        else None
+    )
 
     if profile is RunnerProfile.LOCAL:
         api_key = _first_non_empty(
@@ -263,7 +281,31 @@ def load_runner_config(
         output_root=output_root,
         run_id=run_id_value,
         selected_scenarios=selected,
+        soak_iterations=soak_iterations_value,
     )
+
+
+def _load_soak_iterations(
+    env: Mapping[str, str],
+    *,
+    explicit: int | None,
+) -> int | None:
+    if explicit is not None:
+        if explicit <= 0:
+            raise ValueError("soak_iterations must be greater than 0")
+        return explicit
+
+    raw = env.get("SUSANOH_TESTBENCH_SOAK_ITERATIONS", "").strip()
+    if not raw:
+        return None
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("SUSANOH_TESTBENCH_SOAK_ITERATIONS must be an integer") from exc
+    if value <= 0:
+        raise ValueError("SUSANOH_TESTBENCH_SOAK_ITERATIONS must be greater than 0")
+    return value
 
 
 def apply_run_namespace(scenario: Mapping[str, Any], run_id: str) -> dict[str, Any]:
@@ -337,10 +379,58 @@ def load_testbench_fixture(fixtures_dir: Path) -> TestbenchDataset:
     return dataset
 
 
+def _build_soak_plan(
+    scenarios: Sequence[ScenarioFixture],
+    *,
+    configured_iterations: int | None,
+) -> SoakReplayPlan:
+    policy = load_operational_testbench_policy().load_targets[TestbenchMode.SOAK]
+    events_per_cycle = sum(len(scenario.events) for scenario in scenarios)
+    if configured_iterations is None:
+        target_events = math.ceil(policy.target_tps * policy.duration_minutes * 60)
+        iterations = max(1, math.ceil(target_events / max(events_per_cycle, 1)))
+    else:
+        iterations = configured_iterations
+
+    return SoakReplayPlan(
+        iterations_planned=iterations,
+        target_tps=policy.target_tps,
+        duration_minutes=policy.duration_minutes,
+        machine_profile=policy.machine_profile,
+        scenario_execution_count=len(scenarios) * iterations,
+        event_replay_count=events_per_cycle * iterations,
+    )
+
+
+def _peak_rss_mb() -> float | None:
+    try:
+        import resource
+    except ImportError:
+        return None
+
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return round(float(rss) / float(divisor), 2)
+
+
+async def _pace_soak_replay(
+    *,
+    replayed_event_count: int,
+    started_at: float,
+    target_tps: float,
+) -> None:
+    if replayed_event_count <= 0 or target_tps <= 0:
+        return
+
+    expected_elapsed_seconds = replayed_event_count / target_tps
+    remaining_seconds = expected_elapsed_seconds - (time.perf_counter() - started_at)
+    if remaining_seconds > 0:
+        await asyncio.sleep(remaining_seconds)
+
+
 async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
     artifacts_dir = config.output_root / config.run_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    policy = load_operational_testbench_policy()
 
     try:
         dataset = load_testbench_fixture(config.fixtures_dir)
@@ -374,6 +464,8 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
     latencies_ms: list[float] = []
     failures: list[dict[str, Any]] = []
     scenario_results: list[dict[str, Any]] = []
+    execution_totals: dict[str, int] | None = None
+    extra_summary: dict[str, Any] | None = None
 
     if config.profile is RunnerProfile.LOCAL:
         from backend.main import reset_runtime_state
@@ -419,18 +511,82 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                     **_api_key_headers(config.api_key),
                 }
                 event_headers = _api_key_headers(config.api_key)
-
-                for scenario in scenarios:
-                    result = await _run_scenario(
-                        client=client,
-                        config=config,
-                        scenario=scenario,
-                        auth_headers=auth_headers,
-                        event_headers=event_headers,
+                if config.mode is TestbenchMode.SOAK:
+                    soak_plan = _build_soak_plan(
+                        scenarios,
+                        configured_iterations=config.soak_iterations,
                     )
-                    scenario_results.append(result["scenario"])
-                    failures.extend(result["failures"])
-                    latencies_ms.extend(result["latencies_ms"])
+                    soak_aggregates: dict[str, dict[str, Any]] = {}
+                    peak_rss_before_mb = _peak_rss_mb()
+                    soak_started_at = time.perf_counter()
+                    replayed_event_count = 0
+                    for iteration in range(1, soak_plan.iterations_planned + 1):
+                        iteration_config = replace(
+                            config,
+                            run_id=f"{config.run_id}-it{iteration:05d}",
+                        )
+                        for scenario in scenarios:
+                            result = await _run_scenario(
+                                client=client,
+                                config=iteration_config,
+                                scenario=scenario,
+                                auth_headers=auth_headers,
+                                event_headers=event_headers,
+                            )
+                            _record_soak_execution(
+                                soak_aggregates,
+                                result["scenario"],
+                                result["latencies_ms"],
+                            )
+                            failures.extend(
+                                _annotate_failures_for_iteration(result["failures"], iteration=iteration)
+                            )
+                            latencies_ms.extend(result["latencies_ms"])
+                            replayed_event_count += len(scenario.events)
+                            await _pace_soak_replay(
+                                replayed_event_count=replayed_event_count,
+                                started_at=soak_started_at,
+                                target_tps=soak_plan.target_tps,
+                            )
+
+                    scenario_results = _finalize_soak_scenario_results(soak_aggregates)
+                    peak_rss_after_mb = _peak_rss_mb()
+                    execution_totals = {
+                        "total": soak_plan.scenario_execution_count,
+                        "passed": sum(item["passed_iterations"] for item in scenario_results),
+                        "failed": sum(item["failed_iterations"] for item in scenario_results),
+                    }
+                    extra_summary = {
+                        "soak": {
+                            "iterations_planned": soak_plan.iterations_planned,
+                            "target_tps": soak_plan.target_tps,
+                            "duration_minutes": soak_plan.duration_minutes,
+                            "machine_profile": soak_plan.machine_profile,
+                            "scenario_execution_count": soak_plan.scenario_execution_count,
+                            "event_replay_count": soak_plan.event_replay_count,
+                            "state_drift_count": sum(
+                                item["state_drift_count"] for item in scenario_results
+                            ),
+                            "peak_rss_mb": peak_rss_after_mb,
+                            "peak_rss_growth_mb": (
+                                round(max(peak_rss_after_mb - peak_rss_before_mb, 0.0), 2)
+                                if peak_rss_before_mb is not None and peak_rss_after_mb is not None
+                                else None
+                            ),
+                        }
+                    }
+                else:
+                    for scenario in scenarios:
+                        result = await _run_scenario(
+                            client=client,
+                            config=config,
+                            scenario=scenario,
+                            auth_headers=auth_headers,
+                            event_headers=event_headers,
+                        )
+                        scenario_results.append(result["scenario"])
+                        failures.extend(result["failures"])
+                        latencies_ms.extend(result["latencies_ms"])
 
     exit_code = _determine_exit_code(failures)
     summary = _build_terminal_summary(
@@ -441,6 +597,8 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
         failures=failures,
         latencies_ms=latencies_ms,
         exit_code=exit_code,
+        execution_totals=execution_totals,
+        extra_summary=extra_summary,
     )
     _write_artifacts(artifacts_dir, summary, failures)
 
@@ -716,6 +874,154 @@ async def _run_scenario(
     }
 
 
+def _record_soak_execution(
+    aggregates: dict[str, dict[str, Any]],
+    scenario_summary: Mapping[str, Any],
+    latencies_ms: Sequence[float],
+) -> None:
+    scenario_id = str(scenario_summary["scenario_id"])
+    aggregate = aggregates.get(scenario_id)
+    if aggregate is None:
+        aggregate = {
+            "scenario_id": scenario_id,
+            "title": scenario_summary["title"],
+            "risk_tier": scenario_summary["risk_tier"],
+            "expected_l1_rules": list(scenario_summary.get("expected_l1_rules", [])),
+            "expected_state_path": list(scenario_summary.get("expected_state_path", [])),
+            "expected_l2_actions": list(scenario_summary.get("expected_l2_actions", [])),
+            "max_p95_ms": scenario_summary["max_p95_ms"],
+            "iterations": 0,
+            "passed_iterations": 0,
+            "failed_iterations": 0,
+            "state_drift_count": 0,
+            "request_count": 0,
+            "latencies_ms": [],
+            "iteration_p95s": [],
+            "failed_gates": set(),
+            "quality_gates": {},
+            "fault_injection": scenario_summary.get("fault_injection"),
+            "fault_injection_applied": False,
+            "baseline_signature": None,
+            "baseline_observed_l1_rules": [],
+            "baseline_observed_state_path": [],
+            "baseline_observed_l2_action": None,
+            "baseline_final_state": None,
+            "last_target_id": scenario_summary.get("target_id"),
+            "last_observed_l1_rules": [],
+            "last_observed_state_path": [],
+            "last_observed_l2_action": None,
+            "last_final_state": None,
+            "last_analysis_reasoning": None,
+        }
+        aggregates[scenario_id] = aggregate
+
+    aggregate["iterations"] += 1
+    if bool(scenario_summary.get("passed")):
+        aggregate["passed_iterations"] += 1
+    else:
+        aggregate["failed_iterations"] += 1
+    aggregate["request_count"] += int(scenario_summary.get("request_count", 0))
+    aggregate["latencies_ms"].extend(float(value) for value in latencies_ms)
+    aggregate["iteration_p95s"].append(float(scenario_summary.get("latency_ms", {}).get("p95", 0.0)))
+    aggregate["failed_gates"].update(str(gate) for gate in scenario_summary.get("failed_gates", []))
+    aggregate["fault_injection_applied"] = aggregate["fault_injection_applied"] or bool(
+        scenario_summary.get("fault_injection_applied")
+    )
+
+    for gate, passed in scenario_summary.get("quality_gates", {}).items():
+        counts = aggregate["quality_gates"].setdefault(gate, {"passed": 0, "failed": 0})
+        counts["passed" if passed else "failed"] += 1
+
+    observed_l1_rules = list(scenario_summary.get("observed_l1_rules", []))
+    observed_state_path = list(scenario_summary.get("observed_state_path", []))
+    observed_l2_action = scenario_summary.get("observed_l2_action")
+    final_state = scenario_summary.get("final_state")
+    signature = (
+        tuple(observed_l1_rules),
+        tuple(observed_state_path),
+        observed_l2_action,
+        final_state,
+    )
+    if aggregate["baseline_signature"] is None:
+        aggregate["baseline_signature"] = signature
+        aggregate["baseline_observed_l1_rules"] = observed_l1_rules
+        aggregate["baseline_observed_state_path"] = observed_state_path
+        aggregate["baseline_observed_l2_action"] = observed_l2_action
+        aggregate["baseline_final_state"] = final_state
+    elif signature != aggregate["baseline_signature"]:
+        aggregate["state_drift_count"] += 1
+
+    aggregate["last_target_id"] = scenario_summary.get("target_id")
+    aggregate["last_observed_l1_rules"] = observed_l1_rules
+    aggregate["last_observed_state_path"] = observed_state_path
+    aggregate["last_observed_l2_action"] = observed_l2_action
+    aggregate["last_final_state"] = final_state
+    aggregate["last_analysis_reasoning"] = scenario_summary.get("analysis_reasoning")
+
+
+def _annotate_failures_for_iteration(
+    failures: Sequence[Mapping[str, Any]],
+    *,
+    iteration: int,
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for failure in failures:
+        tagged = dict(failure)
+        tagged["iteration"] = iteration
+        tagged["message"] = f"[iteration {iteration}] {tagged['message']}"
+        annotated.append(tagged)
+    return annotated
+
+
+def _finalize_soak_scenario_results(
+    aggregates: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    finalized: list[dict[str, Any]] = []
+    for scenario_id in sorted(aggregates):
+        aggregate = aggregates[scenario_id]
+        iteration_p95s = [float(value) for value in aggregate["iteration_p95s"]]
+        finalized.append(
+            {
+                "scenario_id": aggregate["scenario_id"],
+                "title": aggregate["title"],
+                "risk_tier": aggregate["risk_tier"],
+                "target_id": aggregate["last_target_id"],
+                "passed": aggregate["failed_iterations"] == 0,
+                "failed_gates": sorted(aggregate["failed_gates"]),
+                "expected_l1_rules": list(aggregate["expected_l1_rules"]),
+                "observed_l1_rules": list(aggregate["last_observed_l1_rules"]),
+                "expected_state_path": list(aggregate["expected_state_path"]),
+                "observed_state_path": list(aggregate["last_observed_state_path"]),
+                "expected_l2_actions": list(aggregate["expected_l2_actions"]),
+                "max_p95_ms": aggregate["max_p95_ms"],
+                "observed_l2_action": aggregate["last_observed_l2_action"],
+                "final_state": aggregate["last_final_state"],
+                "fault_injection": aggregate["fault_injection"],
+                "fault_injection_applied": aggregate["fault_injection_applied"],
+                "analysis_reasoning": aggregate["last_analysis_reasoning"],
+                "request_count": aggregate["request_count"],
+                "latency_ms": _latency_summary(aggregate["latencies_ms"]),
+                "iteration_latency_ms": {
+                    "first_p95": iteration_p95s[0] if iteration_p95s else 0.0,
+                    "last_p95": iteration_p95s[-1] if iteration_p95s else 0.0,
+                    "max_p95": max(iteration_p95s) if iteration_p95s else 0.0,
+                },
+                "quality_gates": {
+                    gate: {
+                        "passed": counts["passed"],
+                        "failed": counts["failed"],
+                    }
+                    for gate, counts in sorted(aggregate["quality_gates"].items())
+                },
+                "iterations": aggregate["iterations"],
+                "passed_iterations": aggregate["passed_iterations"],
+                "failed_iterations": aggregate["failed_iterations"],
+                "state_drift_count": aggregate["state_drift_count"],
+            }
+        )
+    return finalized
+
+
 async def _run_local_l2(
     *,
     scenario: ScenarioFixture,
@@ -907,10 +1213,19 @@ def _build_terminal_summary(
     failures: list[dict[str, Any]],
     latencies_ms: list[float],
     exit_code: RunnerExitCode,
+    execution_totals: Mapping[str, int] | None = None,
+    extra_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    passed = sum(1 for scenario in scenario_results if scenario.get("passed"))
-    failed = len(scenario_results) - passed
-    success_rate = round((passed / len(scenario_results)), 4) if scenario_results else 0.0
+    if execution_totals is None:
+        total = len(scenario_results)
+        passed = sum(1 for scenario in scenario_results if scenario.get("passed"))
+        failed = total - passed
+    else:
+        total = execution_totals["total"]
+        passed = execution_totals["passed"]
+        failed = execution_totals["failed"]
+
+    success_rate = round((passed / total), 4) if total else 0.0
     latency_summary = _latency_summary(latencies_ms)
     slo = load_operational_testbench_policy().slos[config.mode]
     slo_passed = (
@@ -919,7 +1234,7 @@ def _build_terminal_summary(
         and failed <= slo.max_failures
     )
 
-    return {
+    summary = {
         "run_id": config.run_id,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "status": "passed" if exit_code is RunnerExitCode.ALL_PASS else "failed",
@@ -927,7 +1242,7 @@ def _build_terminal_summary(
         "mode": config.mode.value,
         "dataset": dataset_name,
         "dataset_version": dataset_version,
-        "scenarios_total": len(scenario_results),
+        "scenarios_total": total,
         "scenarios_passed": passed,
         "scenarios_failed": failed,
         "request_count": len(latencies_ms),
@@ -943,6 +1258,9 @@ def _build_terminal_summary(
         "exit_code": exit_code.value,
         "scenarios": scenario_results,
     }
+    if extra_summary:
+        summary.update(extra_summary)
+    return summary
 
 
 def _write_artifacts(
@@ -980,18 +1298,44 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
         f"- Success Rate: `{summary['success_rate']}`",
         f"- Latency p95: `{summary['latency_ms']['p95']}` ms",
         "",
-        "## Scenarios",
-        "",
     ]
+
+    soak_summary = summary.get("soak")
+    if isinstance(soak_summary, Mapping):
+        lines.extend(
+            [
+                "## Soak Replay",
+                "",
+                f"- Iterations Planned: `{soak_summary['iterations_planned']}`",
+                f"- Scenario Executions: `{soak_summary['scenario_execution_count']}`",
+                f"- Event Replays: `{soak_summary['event_replay_count']}`",
+                f"- State Drift Count: `{soak_summary['state_drift_count']}`",
+            ]
+        )
+        peak_rss_mb = soak_summary.get("peak_rss_mb")
+        if peak_rss_mb is not None:
+            lines.append(f"- Peak RSS: `{peak_rss_mb}` MiB")
+        peak_rss_growth_mb = soak_summary.get("peak_rss_growth_mb")
+        if peak_rss_growth_mb is not None:
+            lines.append(f"- Peak RSS Growth: `{peak_rss_growth_mb}` MiB")
+        lines.append("")
+
+    lines.extend(["## Scenarios", ""])
 
     for scenario in summary.get("scenarios", []):
         state = "PASS" if scenario["passed"] else "FAIL"
         fault_suffix = ""
         if scenario.get("fault_injection_applied") and scenario.get("fault_injection"):
             fault_suffix = f", fault={scenario['fault_injection']['type']}"
+        soak_suffix = ""
+        if "iterations" in scenario:
+            soak_suffix = (
+                f", iterations={scenario['iterations']}, drift={scenario['state_drift_count']}"
+            )
         lines.append(
             f"- `{scenario['scenario_id']}`: {state} "
-            f"(target=`{scenario['target_id']}`, failed_gates={scenario['failed_gates']}{fault_suffix})"
+            f"(target=`{scenario['target_id']}`, failed_gates={scenario['failed_gates']}"
+            f"{soak_suffix}{fault_suffix})"
         )
 
     if failures:
@@ -1129,6 +1473,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--run-id")
     parser.add_argument("--scenario", action="append", default=[])
+    parser.add_argument("--soak-iterations", type=int)
 
     args = parser.parse_args(list(argv) if argv is not None else None)
     config = load_runner_config(
@@ -1138,6 +1483,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_root=Path(args.output_root),
         run_id=args.run_id,
         selected_scenarios=args.scenario,
+        soak_iterations=args.soak_iterations,
     )
     result = asyncio.run(run_testbench(config))
     print(json.dumps(result.summary, ensure_ascii=True))
