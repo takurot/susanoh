@@ -41,30 +41,38 @@ jobs:
 
       - name: Capture runner profile
         run: |
-          echo "## Soak Runner Profile" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Image: \`${ImageOS:-unknown} ${ImageVersion:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- CPU Cores: \`$(nproc)\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Memory: \`$(awk '/MemTotal/ {printf \"%.2f GiB\", $2 / 1024 / 1024}' /proc/meminfo)\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Mode: best-effort telemetry on GitHub-hosted runners" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Soak Runner Profile"
+            echo "- Image: \`${ImageOS:-unknown} ${ImageVersion:-unknown}\`"
+            echo "- CPU Cores: \`$(nproc)\`"
+            echo "- Memory: \`$(awk '/MemTotal/ {printf \"%.2f GiB\", $2 / 1024 / 1024}' /proc/meminfo)\`"
+            echo "- Mode: best-effort telemetry on GitHub-hosted runners"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate soak configuration
         run: |
           raw_iterations="${TESTBENCH_SOAK_ITERATIONS:-}"
           if [ -z "$raw_iterations" ]; then
             echo "SANITIZED_TESTBENCH_SOAK_ITERATIONS=" >> "$GITHUB_ENV"
-            echo "- Soak iterations override: default policy plan" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "- Soak iterations override: default policy plan"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
           if [[ "$raw_iterations" =~ ^[1-9][0-9]*$ ]]; then
             echo "SANITIZED_TESTBENCH_SOAK_ITERATIONS=$raw_iterations" >> "$GITHUB_ENV"
-            echo "- Soak iterations override: \`$raw_iterations\`" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "- Soak iterations override: \`$raw_iterations\`"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
           echo "SANITIZED_TESTBENCH_SOAK_ITERATIONS=" >> "$GITHUB_ENV"
           echo "::warning title=Invalid soak iterations override::Ignoring SUSANOH_TESTBENCH_SOAK_ITERATIONS=$raw_iterations and using the default soak plan."
-          echo "- Soak iterations override: ignored invalid value \`$raw_iterations\`; using default policy plan" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "- Soak iterations override: ignored invalid value \`$raw_iterations\`; using default policy plan"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run Soak Testbench
         run: |
