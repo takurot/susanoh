@@ -1,0 +1,640 @@
+{
+  "dataset": "susanoh-operational-testbench-timeline-variations",
+  "version": "v0.3.0",
+  "generated_at": "2026-03-13T14:01:39.311608Z",
+  "seed": 20260305,
+  "case_count": 3,
+  "cases": [
+    {
+      "variation_id": "timeline_out_of_order_layering_chain",
+      "scenario_id": "fraud_layering_chain_exit",
+      "title": "Layering chain with out-of-order arrival",
+      "variation_type": "out_of_order_arrival",
+      "description": "Bridge-leg events arrive in a non-canonical order while preserving their original timestamps.",
+      "risk_tier": "high",
+      "pattern_family": "MONEY_LAUNDERING",
+      "target_id": "acct_exit_01",
+      "canonical_event_ids": [
+        "evt_tb_000015",
+        "evt_tb_000016",
+        "evt_tb_000017",
+        "evt_tb_000018",
+        "evt_tb_000019",
+        "evt_tb_000020",
+        "evt_tb_000021",
+        "evt_tb_000022",
+        "evt_tb_000023",
+        "evt_tb_000024"
+      ],
+      "arrival_event_ids": [
+        "evt_tb_000015",
+        "evt_tb_000016",
+        "evt_tb_000018",
+        "evt_tb_000017",
+        "evt_tb_000019",
+        "evt_tb_000020",
+        "evt_tb_000022",
+        "evt_tb_000021",
+        "evt_tb_000023",
+        "evt_tb_000024"
+      ],
+      "duplicate_event_ids": [],
+      "delayed_event_ids": [
+        "evt_tb_000017",
+        "evt_tb_000021"
+      ],
+      "events": [
+        {
+          "event_id": "evt_tb_000015",
+          "timestamp": "2099-01-01T00:02:00Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_a1",
+          "target_id": "acct_layer_b1",
+          "action_details": {
+            "currency_amount": 220000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 6,
+            "account_age_days": 9,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000016",
+          "timestamp": "2099-01-01T00:02:08Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_b1",
+          "target_id": "acct_layer_c1",
+          "action_details": {
+            "currency_amount": 210000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 17,
+            "account_age_days": 37,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000018",
+          "timestamp": "2099-01-01T00:02:24Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_d1",
+          "target_id": "acct_exit_01",
+          "action_details": {
+            "currency_amount": 194000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 14,
+            "account_age_days": 8,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000017",
+          "timestamp": "2099-01-01T00:02:16Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_c1",
+          "target_id": "acct_layer_d1",
+          "action_details": {
+            "currency_amount": 202000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 6,
+            "account_age_days": 15,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000019",
+          "timestamp": "2099-01-01T00:02:32Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_a2",
+          "target_id": "acct_layer_b2",
+          "action_details": {
+            "currency_amount": 230000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 8,
+            "account_age_days": 26,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000020",
+          "timestamp": "2099-01-01T00:02:40Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_b2",
+          "target_id": "acct_layer_c2",
+          "action_details": {
+            "currency_amount": 219000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 11,
+            "account_age_days": 31,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000022",
+          "timestamp": "2099-01-01T00:02:56Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_x",
+          "target_id": "acct_exit_01",
+          "action_details": {
+            "currency_amount": 208000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 17,
+            "account_age_days": 11,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000021",
+          "timestamp": "2099-01-01T00:02:48Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_c2",
+          "target_id": "acct_exit_01",
+          "action_details": {
+            "currency_amount": 206000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 6,
+            "account_age_days": 37,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000023",
+          "timestamp": "2099-01-01T00:03:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_y",
+          "target_id": "acct_exit_01",
+          "action_details": {
+            "currency_amount": 205000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 12,
+            "account_age_days": 32,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000024",
+          "timestamp": "2099-01-01T00:03:12Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_layer_z",
+          "target_id": "acct_exit_01",
+          "action_details": {
+            "currency_amount": 207000,
+            "item_id": "itm_rare_gem_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 12,
+            "account_age_days": 45,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "variation_id": "timeline_delayed_flash_sale_peak",
+      "scenario_id": "gray_flash_sale_peak",
+      "title": "Flash-sale burst with delayed arrivals",
+      "variation_type": "delayed_arrival",
+      "description": "Two earlier sale events arrive after newer ones to simulate ingest lag and queue jitter.",
+      "risk_tier": "medium",
+      "pattern_family": "LEGITIMATE_STRESS",
+      "target_id": "acct_market_maker_01",
+      "canonical_event_ids": [
+        "evt_tb_000085",
+        "evt_tb_000086",
+        "evt_tb_000087",
+        "evt_tb_000088",
+        "evt_tb_000089",
+        "evt_tb_000090",
+        "evt_tb_000091",
+        "evt_tb_000092",
+        "evt_tb_000093",
+        "evt_tb_000094"
+      ],
+      "arrival_event_ids": [
+        "evt_tb_000085",
+        "evt_tb_000086",
+        "evt_tb_000087",
+        "evt_tb_000090",
+        "evt_tb_000091",
+        "evt_tb_000088",
+        "evt_tb_000089",
+        "evt_tb_000092",
+        "evt_tb_000093",
+        "evt_tb_000094"
+      ],
+      "duplicate_event_ids": [],
+      "delayed_event_ids": [
+        "evt_tb_000088",
+        "evt_tb_000089"
+      ],
+      "events": [
+        {
+          "event_id": "evt_tb_000085",
+          "timestamp": "2099-01-01T00:11:20Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_01",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 108800,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 49,
+            "account_age_days": 635,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000086",
+          "timestamp": "2099-01-01T00:11:28Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_02",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 97503,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 50,
+            "account_age_days": 436,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000087",
+          "timestamp": "2099-01-01T00:11:36Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_03",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 108609,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 44,
+            "account_age_days": 468,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000090",
+          "timestamp": "2099-01-01T00:12:00Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_06",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 100978,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 30,
+            "account_age_days": 807,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000091",
+          "timestamp": "2099-01-01T00:12:08Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_07",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 97148,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 40,
+            "account_age_days": 517,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000088",
+          "timestamp": "2099-01-01T00:11:44Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_04",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 100170,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 65,
+            "account_age_days": 125,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000089",
+          "timestamp": "2099-01-01T00:11:52Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_05",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 107540,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 66,
+            "account_age_days": 433,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000092",
+          "timestamp": "2099-01-01T00:12:16Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_08",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 102790,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 719,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000093",
+          "timestamp": "2099-01-01T00:12:24Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_09",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 108930,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 59,
+            "account_age_days": 385,
+            "recent_chat_log": "limited event trade"
+          }
+        },
+        {
+          "event_id": "evt_tb_000094",
+          "timestamp": "2099-01-01T00:12:32Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_flash_sale_user_10",
+          "target_id": "acct_market_maker_01",
+          "action_details": {
+            "currency_amount": 107143,
+            "item_id": "itm_event_ticket_01",
+            "market_avg_price": 1500
+          },
+          "context_metadata": {
+            "actor_level": 31,
+            "account_age_days": 347,
+            "recent_chat_log": "limited event trade"
+          }
+        }
+      ]
+    },
+    {
+      "variation_id": "timeline_duplicate_friend_gifts",
+      "scenario_id": "legit_friend_gifts_low_value",
+      "title": "Friend gifts with duplicate delivery",
+      "variation_type": "duplicate_delivery",
+      "description": "The transport replays one gift event, reproducing at-least-once delivery against a legitimate baseline.",
+      "risk_tier": "low",
+      "pattern_family": "LEGITIMATE",
+      "target_id": "acct_friend_target_01",
+      "canonical_event_ids": [
+        "evt_tb_000109",
+        "evt_tb_000110",
+        "evt_tb_000111",
+        "evt_tb_000112",
+        "evt_tb_000113",
+        "evt_tb_000114",
+        "evt_tb_000115",
+        "evt_tb_000116",
+        "evt_tb_000117"
+      ],
+      "arrival_event_ids": [
+        "evt_tb_000109",
+        "evt_tb_000110",
+        "evt_tb_000111",
+        "evt_tb_000112",
+        "evt_tb_000113",
+        "evt_tb_000113",
+        "evt_tb_000114",
+        "evt_tb_000115",
+        "evt_tb_000116",
+        "evt_tb_000117"
+      ],
+      "duplicate_event_ids": [
+        "evt_tb_000113"
+      ],
+      "delayed_event_ids": [],
+      "events": [
+        {
+          "event_id": "evt_tb_000109",
+          "timestamp": "2099-01-01T00:14:32Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_01",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 16801,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 380,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000110",
+          "timestamp": "2099-01-01T00:14:40Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_02",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 23076,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 40,
+            "account_age_days": 263,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000111",
+          "timestamp": "2099-01-01T00:14:48Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_03",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 23720,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 38,
+            "account_age_days": 526,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000112",
+          "timestamp": "2099-01-01T00:14:56Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_04",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 17437,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 39,
+            "account_age_days": 99,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000113",
+          "timestamp": "2099-01-01T00:15:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_05",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 21843,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 30,
+            "account_age_days": 482,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000113",
+          "timestamp": "2099-01-01T00:15:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_05",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 21843,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 30,
+            "account_age_days": 482,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000114",
+          "timestamp": "2099-01-01T00:15:12Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_06",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 19869,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 17,
+            "account_age_days": 350,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000115",
+          "timestamp": "2099-01-01T00:15:20Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_07",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 17641,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 40,
+            "account_age_days": 495,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000116",
+          "timestamp": "2099-01-01T00:15:28Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_08",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 19570,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 20,
+            "account_age_days": 175,
+            "recent_chat_log": "daily coop gift"
+          }
+        },
+        {
+          "event_id": "evt_tb_000117",
+          "timestamp": "2099-01-01T00:15:36Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_friend_09",
+          "target_id": "acct_friend_target_01",
+          "action_details": {
+            "currency_amount": 17936,
+            "item_id": "itm_friend_gift_01",
+            "market_avg_price": 1600
+          },
+          "context_metadata": {
+            "actor_level": 26,
+            "account_age_days": 264,
+            "recent_chat_log": "daily coop gift"
+          }
+        }
+      ]
+    }
+  ]
+}

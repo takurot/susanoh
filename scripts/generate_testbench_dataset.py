@@ -21,6 +21,7 @@ from backend.l1_screening import (
 )
 
 DEFAULT_MAX_P95_MS = 5000
+DATASET_VERSION = "v0.3.0"
 
 
 @dataclass
@@ -829,11 +830,84 @@ def _build_rule_boundaries(factory: EventFactory) -> list[dict[str, Any]]:
     return cases
 
 
+def _build_timeline_variations(scenarios: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    scenarios_by_id = {scenario["scenario_id"]: scenario for scenario in scenarios}
+
+    def variation(
+        *,
+        variation_id: str,
+        scenario_id: str,
+        variation_type: str,
+        title: str,
+        description: str,
+        arrival_order: list[int],
+        duplicate_indices: list[int] | None = None,
+        delayed_indices: list[int] | None = None,
+    ) -> dict[str, Any]:
+        base_scenario = scenarios_by_id[scenario_id]
+        base_events = base_scenario["events"]
+
+        replay_events = [base_events[index] for index in arrival_order]
+        duplicate_event_ids = [
+            base_events[index]["event_id"] for index in (duplicate_indices or [])
+        ]
+        delayed_event_ids = [
+            base_events[index]["event_id"] for index in (delayed_indices or [])
+        ]
+
+        return {
+            "variation_id": variation_id,
+            "scenario_id": scenario_id,
+            "title": title,
+            "variation_type": variation_type,
+            "description": description,
+            "risk_tier": base_scenario["risk_tier"],
+            "pattern_family": base_scenario["pattern_family"],
+            "target_id": base_scenario["expected"]["target_id"],
+            "canonical_event_ids": [event["event_id"] for event in base_events],
+            "arrival_event_ids": [event["event_id"] for event in replay_events],
+            "duplicate_event_ids": duplicate_event_ids,
+            "delayed_event_ids": delayed_event_ids,
+            "events": replay_events,
+        }
+
+    return [
+        variation(
+            variation_id="timeline_out_of_order_layering_chain",
+            scenario_id="fraud_layering_chain_exit",
+            variation_type="out_of_order_arrival",
+            title="Layering chain with out-of-order arrival",
+            description="Bridge-leg events arrive in a non-canonical order while preserving their original timestamps.",
+            arrival_order=[0, 1, 3, 2, 4, 5, 7, 6, 8, 9],
+            delayed_indices=[2, 6],
+        ),
+        variation(
+            variation_id="timeline_delayed_flash_sale_peak",
+            scenario_id="gray_flash_sale_peak",
+            variation_type="delayed_arrival",
+            title="Flash-sale burst with delayed arrivals",
+            description="Two earlier sale events arrive after newer ones to simulate ingest lag and queue jitter.",
+            arrival_order=[0, 1, 2, 5, 6, 3, 4, 7, 8, 9],
+            delayed_indices=[3, 4],
+        ),
+        variation(
+            variation_id="timeline_duplicate_friend_gifts",
+            scenario_id="legit_friend_gifts_low_value",
+            variation_type="duplicate_delivery",
+            title="Friend gifts with duplicate delivery",
+            description="The transport replays one gift event, reproducing at-least-once delivery against a legitimate baseline.",
+            arrival_order=[0, 1, 2, 3, 4, 4, 5, 6, 7, 8],
+            duplicate_indices=[4],
+        ),
+    ]
+
+
 def _write_outputs(
     output_dir: Path,
     seed: int,
     scenarios: list[dict[str, Any]],
     rule_boundaries: list[dict[str, Any]],
+    timeline_variations: list[dict[str, Any]],
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -851,7 +925,7 @@ def _write_outputs(
 
     manifest = {
         "dataset": "susanoh-operational-testbench",
-        "version": "v0.2.0",
+        "version": DATASET_VERSION,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "seed": seed,
         "scenario_count": len(scenarios),
@@ -881,6 +955,19 @@ def _write_outputs(
         encoding="utf-8",
     )
 
+    timeline_manifest = {
+        "dataset": "susanoh-operational-testbench-timeline-variations",
+        "version": manifest["version"],
+        "generated_at": manifest["generated_at"],
+        "seed": seed,
+        "case_count": len(timeline_variations),
+        "cases": timeline_variations,
+    }
+    (output_dir / "timeline_variations.json").write_text(
+        json.dumps(timeline_manifest, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     summary_lines = [
         "# Operational Testbench Dataset (Seed)",
         "",
@@ -889,6 +976,7 @@ def _write_outputs(
         f"- Scenario count: `{manifest['scenario_count']}`",
         f"- Event count: `{manifest['event_count']}`",
         f"- Rule boundary cases: `{boundary_manifest['case_count']}`",
+        f"- Timeline variation cases: `{timeline_manifest['case_count']}`",
         "",
         "## Risk-tier distribution",
     ]
@@ -908,6 +996,7 @@ def _write_outputs(
             "- `scenarios.json`: scenario-level manifest, expectations (including `max_p95_ms`), and full event sequences.",
             "- `events.jsonl`: flattened stream for replay/soak test ingestion.",
             "- `rule_boundaries.json`: R1-R4 threshold boundary cases (`just_below`, `at_threshold`, `just_above`) validated against `L1Engine`.",
+            "- `timeline_variations.json`: out-of-order arrival / delayed arrival / duplicate delivery replay cases derived from canonical scenarios.",
         ]
     )
 
@@ -931,6 +1020,14 @@ def _write_outputs(
         ]
         summary_lines.append(
             f"- `{rule_id}`: {', '.join(f'`{variant}`' for variant in variants)}"
+        )
+
+    summary_lines.extend(["", "## Timeline Variations"])
+    for case in timeline_variations:
+        summary_lines.append(
+            "- "
+            f"`{case['variation_type']}`: "
+            f"`{case['variation_id']}` -> `{case['scenario_id']}`"
         )
 
     summary_lines.extend(
@@ -968,12 +1065,14 @@ def main() -> int:
     factory = EventFactory(started_at=datetime(2099, 1, 1, 0, 0, tzinfo=UTC))
     scenarios = _build_scenarios(factory=factory, rng=rng)
     rule_boundaries = _build_rule_boundaries(factory=factory)
+    timeline_variations = _build_timeline_variations(scenarios)
 
     _write_outputs(
         args.output,
         seed=args.seed,
         scenarios=scenarios,
         rule_boundaries=rule_boundaries,
+        timeline_variations=timeline_variations,
     )
     print(
         json.dumps(
@@ -984,6 +1083,7 @@ def main() -> int:
                 "scenarios": len(scenarios),
                 "events": sum(len(s["events"]) for s in scenarios),
                 "rule_boundary_cases": len(rule_boundaries),
+                "timeline_variation_cases": len(timeline_variations),
             },
             ensure_ascii=True,
         )

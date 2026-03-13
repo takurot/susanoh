@@ -1,7 +1,7 @@
 {
   "dataset": "susanoh-operational-testbench",
-  "version": "v0.2.0",
-  "generated_at": "2026-03-13T13:32:21.044457Z",
+  "version": "v0.3.0",
+  "generated_at": "2026-03-13T14:01:39.311608Z",
   "seed": 20260305,
   "scenario_count": 15,
   "event_count": 125,
