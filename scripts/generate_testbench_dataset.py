@@ -4,10 +4,21 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from backend.l1_screening import (
+    AMOUNT_THRESHOLD,
+    MARKET_AVG_MULTIPLIER,
+    TX_COUNT_THRESHOLD,
+)
 
 DEFAULT_MAX_P95_MS = 5000
 
@@ -590,7 +601,240 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
     return scenarios
 
 
-def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]]) -> None:
+def _build_rule_boundaries(factory: EventFactory) -> list[dict[str, Any]]:
+    def event(
+        *,
+        actor_id: str,
+        target_id: str,
+        amount: int,
+        market_avg: int,
+        chat: str | None = None,
+        item_id: str = "itm_boundary_probe_01",
+    ) -> dict[str, Any]:
+        return factory.make(
+            actor_id=actor_id,
+            target_id=target_id,
+            currency_amount=amount,
+            market_avg_price=market_avg,
+            recent_chat_log=chat,
+            actor_level=42,
+            account_age_days=365,
+            item_id=item_id,
+        )
+
+    cases: list[dict[str, Any]] = [
+        {
+            "rule_id": "R1",
+            "variant": "just_below",
+            "description": "Total received stays one unit below the cumulative amount threshold.",
+            "expected_triggered_rules": [],
+            "expected_screened": False,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r1_just_below_sender",
+                    target_id="acct_boundary_r1_just_below_target",
+                    amount=AMOUNT_THRESHOLD - 1,
+                    market_avg=20_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R1",
+            "variant": "at_threshold",
+            "description": "Total received lands exactly on the cumulative amount threshold.",
+            "expected_triggered_rules": ["R1"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r1_at_threshold_sender",
+                    target_id="acct_boundary_r1_at_threshold_target",
+                    amount=AMOUNT_THRESHOLD,
+                    market_avg=20_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R1",
+            "variant": "just_above",
+            "description": "Total received exceeds the cumulative amount threshold by one unit.",
+            "expected_triggered_rules": ["R1"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r1_just_above_sender",
+                    target_id="acct_boundary_r1_just_above_target",
+                    amount=AMOUNT_THRESHOLD + 1,
+                    market_avg=20_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R2",
+            "variant": "just_below",
+            "description": "Transaction count stops one event short of the burst threshold.",
+            "expected_triggered_rules": [],
+            "expected_screened": False,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id=f"acct_boundary_r2_just_below_sender_{idx:02d}",
+                    target_id="acct_boundary_r2_just_below_target",
+                    amount=10_000,
+                    market_avg=1_000,
+                    item_id="itm_boundary_r2_just_below",
+                )
+                for idx in range(1, TX_COUNT_THRESHOLD)
+            ],
+        },
+        {
+            "rule_id": "R2",
+            "variant": "at_threshold",
+            "description": "Transaction count lands exactly on the burst threshold.",
+            "expected_triggered_rules": ["R2"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id=f"acct_boundary_r2_at_threshold_sender_{idx:02d}",
+                    target_id="acct_boundary_r2_at_threshold_target",
+                    amount=10_000,
+                    market_avg=1_000,
+                    item_id="itm_boundary_r2_at_threshold",
+                )
+                for idx in range(1, TX_COUNT_THRESHOLD + 1)
+            ],
+        },
+        {
+            "rule_id": "R2",
+            "variant": "just_above",
+            "description": "Transaction count exceeds the burst threshold by one event.",
+            "expected_triggered_rules": ["R2"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id=f"acct_boundary_r2_just_above_sender_{idx:02d}",
+                    target_id="acct_boundary_r2_just_above_target",
+                    amount=10_000,
+                    market_avg=1_000,
+                    item_id="itm_boundary_r2_just_above",
+                )
+                for idx in range(1, TX_COUNT_THRESHOLD + 2)
+            ],
+        },
+        {
+            "rule_id": "R3",
+            "variant": "just_below",
+            "description": "Trade amount stays one unit below the market-average multiplier threshold.",
+            "expected_triggered_rules": [],
+            "expected_screened": False,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r3_just_below_sender",
+                    target_id="acct_boundary_r3_just_below_target",
+                    amount=(1_000 * MARKET_AVG_MULTIPLIER) - 1,
+                    market_avg=1_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R3",
+            "variant": "at_threshold",
+            "description": "Trade amount lands exactly on the market-average multiplier threshold.",
+            "expected_triggered_rules": ["R3"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r3_at_threshold_sender",
+                    target_id="acct_boundary_r3_at_threshold_target",
+                    amount=1_000 * MARKET_AVG_MULTIPLIER,
+                    market_avg=1_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R3",
+            "variant": "just_above",
+            "description": "Trade amount exceeds the market-average multiplier threshold by one unit.",
+            "expected_triggered_rules": ["R3"],
+            "expected_screened": True,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r3_just_above_sender",
+                    target_id="acct_boundary_r3_just_above_target",
+                    amount=(1_000 * MARKET_AVG_MULTIPLIER) + 1,
+                    market_avg=1_000,
+                )
+            ],
+        },
+        {
+            "rule_id": "R4",
+            "variant": "just_below",
+            "description": "Chat text is one token short of the slang regex match.",
+            "expected_triggered_rules": [],
+            "expected_screened": False,
+            "expected_needs_l2": False,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r4_just_below_sender",
+                    target_id="acct_boundary_r4_just_below_target",
+                    amount=50_000,
+                    market_avg=1_000,
+                    chat="PayPa",
+                )
+            ],
+        },
+        {
+            "rule_id": "R4",
+            "variant": "at_threshold",
+            "description": "Chat text includes the minimum supported slang token.",
+            "expected_triggered_rules": ["R4"],
+            "expected_screened": True,
+            "expected_needs_l2": True,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r4_at_threshold_sender",
+                    target_id="acct_boundary_r4_at_threshold_target",
+                    amount=50_000,
+                    market_avg=1_000,
+                    chat="PayPal",
+                )
+            ],
+        },
+        {
+            "rule_id": "R4",
+            "variant": "just_above",
+            "description": "Chat text combines multiple slang markers beyond the minimum match.",
+            "expected_triggered_rules": ["R4"],
+            "expected_screened": True,
+            "expected_needs_l2": True,
+            "events": [
+                event(
+                    actor_id="acct_boundary_r4_just_above_sender",
+                    target_id="acct_boundary_r4_just_above_target",
+                    amount=50_000,
+                    market_avg=1_000,
+                    chat="PayPal 14k",
+                )
+            ],
+        },
+    ]
+
+    return cases
+
+
+def _write_outputs(
+    output_dir: Path,
+    seed: int,
+    scenarios: list[dict[str, Any]],
+    rule_boundaries: list[dict[str, Any]],
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     flat_events: list[dict[str, Any]] = []
@@ -607,7 +851,7 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
 
     manifest = {
         "dataset": "susanoh-operational-testbench",
-        "version": "v0.1.1",
+        "version": "v0.2.0",
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "seed": seed,
         "scenario_count": len(scenarios),
@@ -624,6 +868,19 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
         for row in flat_events:
             fp.write(json.dumps(row, ensure_ascii=True) + "\n")
 
+    boundary_manifest = {
+        "dataset": "susanoh-operational-testbench-boundaries",
+        "version": manifest["version"],
+        "generated_at": manifest["generated_at"],
+        "seed": seed,
+        "case_count": len(rule_boundaries),
+        "cases": rule_boundaries,
+    }
+    (output_dir / "rule_boundaries.json").write_text(
+        json.dumps(boundary_manifest, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     summary_lines = [
         "# Operational Testbench Dataset (Seed)",
         "",
@@ -631,6 +888,7 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
         f"- Seed: `{seed}`",
         f"- Scenario count: `{manifest['scenario_count']}`",
         f"- Event count: `{manifest['event_count']}`",
+        f"- Rule boundary cases: `{boundary_manifest['case_count']}`",
         "",
         "## Risk-tier distribution",
     ]
@@ -649,6 +907,7 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
             "## Files",
             "- `scenarios.json`: scenario-level manifest, expectations (including `max_p95_ms`), and full event sequences.",
             "- `events.jsonl`: flattened stream for replay/soak test ingestion.",
+            "- `rule_boundaries.json`: R1-R4 threshold boundary cases (`just_below`, `at_threshold`, `just_above`) validated against `L1Engine`.",
         ]
     )
 
@@ -664,6 +923,15 @@ def _write_outputs(output_dir: Path, seed: int, scenarios: list[dict[str, Any]])
                 f"`{scenario['fault_injection']['type']}` "
                 "(applies only to local regression mode)"
             )
+
+    summary_lines.extend(["", "## Rule Boundaries"])
+    for rule_id in ("R1", "R2", "R3", "R4"):
+        variants = [
+            case["variant"] for case in rule_boundaries if case["rule_id"] == rule_id
+        ]
+        summary_lines.append(
+            f"- `{rule_id}`: {', '.join(f'`{variant}`' for variant in variants)}"
+        )
 
     summary_lines.extend(
         [
@@ -699,8 +967,14 @@ def main() -> int:
     # does not drop fixture events during replay tests.
     factory = EventFactory(started_at=datetime(2099, 1, 1, 0, 0, tzinfo=UTC))
     scenarios = _build_scenarios(factory=factory, rng=rng)
+    rule_boundaries = _build_rule_boundaries(factory=factory)
 
-    _write_outputs(args.output, seed=args.seed, scenarios=scenarios)
+    _write_outputs(
+        args.output,
+        seed=args.seed,
+        scenarios=scenarios,
+        rule_boundaries=rule_boundaries,
+    )
     print(
         json.dumps(
             {
@@ -709,6 +983,7 @@ def main() -> int:
                 "seed": args.seed,
                 "scenarios": len(scenarios),
                 "events": sum(len(s["events"]) for s in scenarios),
+                "rule_boundary_cases": len(rule_boundaries),
             },
             ensure_ascii=True,
         )

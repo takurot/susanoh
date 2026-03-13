@@ -1,0 +1,808 @@
+{
+  "dataset": "susanoh-operational-testbench-boundaries",
+  "version": "v0.2.0",
+  "generated_at": "2026-03-13T13:32:21.044457Z",
+  "seed": 20260305,
+  "case_count": 12,
+  "cases": [
+    {
+      "rule_id": "R1",
+      "variant": "just_below",
+      "description": "Total received stays one unit below the cumulative amount threshold.",
+      "expected_triggered_rules": [],
+      "expected_screened": false,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000125",
+          "timestamp": "2099-01-01T00:16:40Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r1_just_below_sender",
+          "target_id": "acct_boundary_r1_just_below_target",
+          "action_details": {
+            "currency_amount": 999999,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 20000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R1",
+      "variant": "at_threshold",
+      "description": "Total received lands exactly on the cumulative amount threshold.",
+      "expected_triggered_rules": [
+        "R1"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000126",
+          "timestamp": "2099-01-01T00:16:48Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r1_at_threshold_sender",
+          "target_id": "acct_boundary_r1_at_threshold_target",
+          "action_details": {
+            "currency_amount": 1000000,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 20000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R1",
+      "variant": "just_above",
+      "description": "Total received exceeds the cumulative amount threshold by one unit.",
+      "expected_triggered_rules": [
+        "R1"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000127",
+          "timestamp": "2099-01-01T00:16:56Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r1_just_above_sender",
+          "target_id": "acct_boundary_r1_just_above_target",
+          "action_details": {
+            "currency_amount": 1000001,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 20000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R2",
+      "variant": "just_below",
+      "description": "Transaction count stops one event short of the burst threshold.",
+      "expected_triggered_rules": [],
+      "expected_screened": false,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000128",
+          "timestamp": "2099-01-01T00:17:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_01",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000129",
+          "timestamp": "2099-01-01T00:17:12Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_02",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000130",
+          "timestamp": "2099-01-01T00:17:20Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_03",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000131",
+          "timestamp": "2099-01-01T00:17:28Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_04",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000132",
+          "timestamp": "2099-01-01T00:17:36Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_05",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000133",
+          "timestamp": "2099-01-01T00:17:44Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_06",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000134",
+          "timestamp": "2099-01-01T00:17:52Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_07",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000135",
+          "timestamp": "2099-01-01T00:18:00Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_08",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000136",
+          "timestamp": "2099-01-01T00:18:08Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_below_sender_09",
+          "target_id": "acct_boundary_r2_just_below_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_below",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R2",
+      "variant": "at_threshold",
+      "description": "Transaction count lands exactly on the burst threshold.",
+      "expected_triggered_rules": [
+        "R2"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000137",
+          "timestamp": "2099-01-01T00:18:16Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_01",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000138",
+          "timestamp": "2099-01-01T00:18:24Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_02",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000139",
+          "timestamp": "2099-01-01T00:18:32Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_03",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000140",
+          "timestamp": "2099-01-01T00:18:40Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_04",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000141",
+          "timestamp": "2099-01-01T00:18:48Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_05",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000142",
+          "timestamp": "2099-01-01T00:18:56Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_06",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000143",
+          "timestamp": "2099-01-01T00:19:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_07",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000144",
+          "timestamp": "2099-01-01T00:19:12Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_08",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000145",
+          "timestamp": "2099-01-01T00:19:20Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_09",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000146",
+          "timestamp": "2099-01-01T00:19:28Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_at_threshold_sender_10",
+          "target_id": "acct_boundary_r2_at_threshold_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_at_threshold",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R2",
+      "variant": "just_above",
+      "description": "Transaction count exceeds the burst threshold by one event.",
+      "expected_triggered_rules": [
+        "R2"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000147",
+          "timestamp": "2099-01-01T00:19:36Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_01",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000148",
+          "timestamp": "2099-01-01T00:19:44Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_02",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000149",
+          "timestamp": "2099-01-01T00:19:52Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_03",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000150",
+          "timestamp": "2099-01-01T00:20:00Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_04",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000151",
+          "timestamp": "2099-01-01T00:20:08Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_05",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000152",
+          "timestamp": "2099-01-01T00:20:16Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_06",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000153",
+          "timestamp": "2099-01-01T00:20:24Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_07",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000154",
+          "timestamp": "2099-01-01T00:20:32Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_08",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000155",
+          "timestamp": "2099-01-01T00:20:40Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_09",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000156",
+          "timestamp": "2099-01-01T00:20:48Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_10",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        },
+        {
+          "event_id": "evt_tb_000157",
+          "timestamp": "2099-01-01T00:20:56Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r2_just_above_sender_11",
+          "target_id": "acct_boundary_r2_just_above_target",
+          "action_details": {
+            "currency_amount": 10000,
+            "item_id": "itm_boundary_r2_just_above",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R3",
+      "variant": "just_below",
+      "description": "Trade amount stays one unit below the market-average multiplier threshold.",
+      "expected_triggered_rules": [],
+      "expected_screened": false,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000158",
+          "timestamp": "2099-01-01T00:21:04Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r3_just_below_sender",
+          "target_id": "acct_boundary_r3_just_below_target",
+          "action_details": {
+            "currency_amount": 99999,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R3",
+      "variant": "at_threshold",
+      "description": "Trade amount lands exactly on the market-average multiplier threshold.",
+      "expected_triggered_rules": [
+        "R3"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000159",
+          "timestamp": "2099-01-01T00:21:12Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r3_at_threshold_sender",
+          "target_id": "acct_boundary_r3_at_threshold_target",
+          "action_details": {
+            "currency_amount": 100000,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R3",
+      "variant": "just_above",
+      "description": "Trade amount exceeds the market-average multiplier threshold by one unit.",
+      "expected_triggered_rules": [
+        "R3"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000160",
+          "timestamp": "2099-01-01T00:21:20Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r3_just_above_sender",
+          "target_id": "acct_boundary_r3_just_above_target",
+          "action_details": {
+            "currency_amount": 100001,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": null
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R4",
+      "variant": "just_below",
+      "description": "Chat text is one token short of the slang regex match.",
+      "expected_triggered_rules": [],
+      "expected_screened": false,
+      "expected_needs_l2": false,
+      "events": [
+        {
+          "event_id": "evt_tb_000161",
+          "timestamp": "2099-01-01T00:21:28Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r4_just_below_sender",
+          "target_id": "acct_boundary_r4_just_below_target",
+          "action_details": {
+            "currency_amount": 50000,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": "PayPa"
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R4",
+      "variant": "at_threshold",
+      "description": "Chat text includes the minimum supported slang token.",
+      "expected_triggered_rules": [
+        "R4"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": true,
+      "events": [
+        {
+          "event_id": "evt_tb_000162",
+          "timestamp": "2099-01-01T00:21:36Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r4_at_threshold_sender",
+          "target_id": "acct_boundary_r4_at_threshold_target",
+          "action_details": {
+            "currency_amount": 50000,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": "PayPal"
+          }
+        }
+      ]
+    },
+    {
+      "rule_id": "R4",
+      "variant": "just_above",
+      "description": "Chat text combines multiple slang markers beyond the minimum match.",
+      "expected_triggered_rules": [
+        "R4"
+      ],
+      "expected_screened": true,
+      "expected_needs_l2": true,
+      "events": [
+        {
+          "event_id": "evt_tb_000163",
+          "timestamp": "2099-01-01T00:21:44Z",
+          "event_type": "TRADE",
+          "actor_id": "acct_boundary_r4_just_above_sender",
+          "target_id": "acct_boundary_r4_just_above_target",
+          "action_details": {
+            "currency_amount": 50000,
+            "item_id": "itm_boundary_probe_01",
+            "market_avg_price": 1000
+          },
+          "context_metadata": {
+            "actor_level": 42,
+            "account_age_days": 365,
+            "recent_chat_log": "PayPal 14k"
+          }
+        }
+      ]
+    }
+  ]
+}
