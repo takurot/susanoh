@@ -154,6 +154,7 @@ pytest tests/test_live_api.py -m live_api -v
 `scenarios.json` / `events.jsonl` を検証し、シナリオを replay して `summary.json` / `failures.json` / `report.md` / `junit.xml` を出力します。
 `scenarios.json` の `expected` にはシナリオ単位の期待値メタデータを保持し、`max_p95_ms` も品質ゲートとして評価します。
 あわせて `tests/fixtures/testbench/rule_boundaries.json` に R1-R4 の `just_below` / `at_threshold` / `just_above` ケースを保持し、`tests/test_testbench_rule_boundaries.py` で現在の `L1Engine` 実装とズレがないことを検証します。
+また、`tests/fixtures/testbench/timeline_variations.json` に out-of-order arrival / delayed arrival / duplicate delivery の replay ケースを保持し、`tests/test_testbench_timeline_variations.py` で generator 出力との整合を固定します。
 
 ### Local Profile
 
