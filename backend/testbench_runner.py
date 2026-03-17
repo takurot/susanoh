@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from backend import live_api_verification
 from backend.models import AccountState, GameEventLog
@@ -164,6 +164,14 @@ class ScenarioFixture(BaseModel):
         return self
 
 
+class DatasetChangelogEntry(BaseModel):
+    version: str
+    released_at: str
+    summary: str
+    changes: list[str] = Field(default_factory=list)
+    previous_version: str | None = None
+
+
 REQUIRED_SCENARIOS = frozenset([
     "fraud_smurfing_fan_in",
     "fraud_direct_rmt_chat",
@@ -184,12 +192,15 @@ REQUIRED_SCENARIOS = frozenset([
 
 
 class TestbenchDataset(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     dataset: str
-    version: str
+    dataset_version: str = Field(validation_alias=AliasChoices("dataset_version", "version"))
     generated_at: str
     seed: int
     scenario_count: int
     event_count: int
+    changelog: list[DatasetChangelogEntry] = Field(default_factory=list)
     scenarios: list[ScenarioFixture] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -216,7 +227,18 @@ class TestbenchDataset(BaseModel):
                 f"missing required scenario categories: {', '.join(sorted(missing))}"
             )
 
+        if not any(entry.version == self.dataset_version for entry in self.changelog):
+            raise ValueError(
+                f"dataset_version {self.dataset_version} is missing from changelog"
+            )
+
         return self
+
+    def current_changelog_entry(self) -> DatasetChangelogEntry:
+        for entry in self.changelog:
+            if entry.version == self.dataset_version:
+                return entry
+        raise ValueError(f"dataset_version {self.dataset_version} is missing from changelog")
 
 
 class FlattenedScenarioEvent(BaseModel):
@@ -449,6 +471,7 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
             config=config,
             dataset_name="unknown",
             dataset_version="unknown",
+            dataset_changelog=None,
             scenario_results=[],
             failures=[failure],
             latencies_ms=[],
@@ -603,7 +626,8 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
     summary = _build_terminal_summary(
         config=config,
         dataset_name=dataset.dataset,
-        dataset_version=dataset.version,
+        dataset_version=dataset.dataset_version,
+        dataset_changelog=dataset.current_changelog_entry().model_dump(mode="json"),
         scenario_results=scenario_results,
         failures=failures,
         latencies_ms=latencies_ms,
@@ -1281,6 +1305,7 @@ def _build_terminal_summary(
     config: RunnerConfig,
     dataset_name: str,
     dataset_version: str,
+    dataset_changelog: Mapping[str, Any] | None,
     scenario_results: list[dict[str, Any]],
     failures: list[dict[str, Any]],
     latencies_ms: list[float],
@@ -1331,6 +1356,8 @@ def _build_terminal_summary(
         "exit_code": exit_code.value,
         "scenarios": scenario_results,
     }
+    if dataset_changelog:
+        summary["dataset_changelog"] = dict(dataset_changelog)
     if extra_summary:
         summary.update(extra_summary)
     return summary
@@ -1372,6 +1399,23 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
         f"- Latency p95: `{summary['latency_ms']['p95']}` ms",
         "",
     ]
+
+    dataset_changelog = summary.get("dataset_changelog")
+    if isinstance(dataset_changelog, Mapping):
+        lines.extend(
+            [
+                "## Dataset Release",
+                "",
+                f"- Released At: `{dataset_changelog['released_at']}`",
+                f"- Summary: {dataset_changelog['summary']}",
+            ]
+        )
+        previous_version = dataset_changelog.get("previous_version")
+        if previous_version:
+            lines.append(f"- Compare From: `{previous_version}`")
+        for change in dataset_changelog.get("changes", []):
+            lines.append(f"- Change: {change}")
+        lines.append("")
 
     soak_summary = summary.get("soak")
     if isinstance(soak_summary, Mapping):

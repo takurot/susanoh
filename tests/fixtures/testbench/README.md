@@ -1,11 +1,13 @@
 # Operational Testbench Dataset (Seed)
 
-- Dataset version: `v0.3.0`
+- Dataset version: `v0.4.0`
 - Seed: `20260305`
 - Scenario count: `15`
 - Event count: `125`
 - Rule boundary cases: `12`
 - Timeline variation cases: `3`
+- Released at: `2026-03-14`
+- Current release summary: Introduce explicit dataset version metadata and release changelog for fixture comparisons.
 
 ## Risk-tier distribution
 - `high`: 8 scenarios
@@ -32,6 +34,22 @@
 - `out_of_order_arrival`: `timeline_out_of_order_layering_chain` -> `fraud_layering_chain_exit`
 - `delayed_arrival`: `timeline_delayed_flash_sale_peak` -> `gray_flash_sale_peak`
 - `duplicate_delivery`: `timeline_duplicate_friend_gifts` -> `legit_friend_gifts_low_value`
+
+## Changelog
+- `v0.4.0` (2026-03-14): Introduce explicit dataset version metadata and release changelog for fixture comparisons.
+  Compare from `v0.3.0`
+  - Add dataset_version and changelog metadata to generated fixture manifests.
+  - Surface the current release notes in runner artifacts for cross-run comparisons.
+- `v0.3.0` (2026-03-13): Add timeline variation replay cases for out-of-order, delayed, and duplicate event delivery.
+  Compare from `v0.2.0`
+  - Generate timeline_variations.json from canonical scenarios.
+  - Validate timeline variation fixtures against the generator output.
+- `v0.2.0` (2026-03-13): Refresh the dataset with threshold-boundary fixtures for rules R1-R4.
+  Compare from `v0.1.0`
+  - Add just_below, at_threshold, and just_above coverage for each L1 rule.
+  - Validate boundary fixtures against the live L1Engine thresholds.
+- `v0.1.0` (2026-03-05): Seed the initial operational testbench scenario catalog and replay stream.
+  - Create 15 baseline scenarios and the flattened events.jsonl replay stream.
 
 ## Regeneration
 ```bash

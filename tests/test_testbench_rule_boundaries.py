@@ -35,6 +35,8 @@ def test_rule_boundary_fixture_covers_all_rules_and_variants():
     payload = _load_boundary_fixture()
 
     assert payload["dataset"] == "susanoh-operational-testbench-boundaries"
+    assert payload["dataset_version"].startswith("v")
+    assert payload["changelog"][0]["version"] == payload["dataset_version"]
     assert payload["case_count"] == 12
 
     seen: dict[str, set[str]] = {}
