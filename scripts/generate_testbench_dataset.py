@@ -972,7 +972,7 @@ def _write_outputs(
     manifest = {
         "dataset": "susanoh-operational-testbench",
         "dataset_version": DATASET_VERSION,
-        "version": DATASET_VERSION,
+        "version": DATASET_VERSION,  # kept for backward compat with older runners that read "version"
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "seed": seed,
         "scenario_count": len(scenarios),
@@ -993,7 +993,7 @@ def _write_outputs(
     boundary_manifest = {
         "dataset": "susanoh-operational-testbench-boundaries",
         "dataset_version": manifest["dataset_version"],
-        "version": manifest["version"],
+        "version": manifest["version"],  # kept for backward compat
         "generated_at": manifest["generated_at"],
         "seed": seed,
         "case_count": len(rule_boundaries),
@@ -1008,7 +1008,7 @@ def _write_outputs(
     timeline_manifest = {
         "dataset": "susanoh-operational-testbench-timeline-variations",
         "dataset_version": manifest["dataset_version"],
-        "version": manifest["version"],
+        "version": manifest["version"],  # kept for backward compat
         "generated_at": manifest["generated_at"],
         "seed": seed,
         "case_count": len(timeline_variations),

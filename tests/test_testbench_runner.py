@@ -6,9 +6,13 @@ import pytest
 
 from backend.models import ActionDetails, ContextMetadata, GameEventLog
 from backend.testbench_policy import TestbenchMode
+from pydantic import ValidationError
+
 from backend.testbench_runner import (
+    REQUIRED_SCENARIOS,
     RunnerExitCode,
     RunnerProfile,
+    TestbenchDataset,
     _select_scenarios,
     apply_run_namespace,
     load_runner_config,
@@ -621,9 +625,6 @@ def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):
 
 def test_select_scenarios_smoke_mode_raises_on_missing_default():
     """Smoke mode should raise ValueError if a default scenario ID is missing from the dataset."""
-    from backend.testbench_runner import ScenarioFixture, TestbenchDataset
-    from pydantic import ValidationError
-
     scenarios = _passing_scenarios()
     # Remove one required smoke scenario
     scenarios = [s for s in scenarios if s["scenario_id"] != "fraud_smurfing_fan_in"]
@@ -651,9 +652,6 @@ def test_select_scenarios_smoke_mode_raises_on_missing_default():
 
 def test_testbench_dataset_requires_all_scenarios():
     """The TestbenchDataset model should enforce that all REQUIRED_SCENARIOS are present."""
-    from backend.testbench_runner import TestbenchDataset, REQUIRED_SCENARIOS
-    from pydantic import ValidationError
-
     scenarios = _passing_scenarios()
 
     # Valid
@@ -701,9 +699,6 @@ def test_testbench_dataset_requires_all_scenarios():
 
 
 def test_testbench_dataset_requires_current_version_in_changelog():
-    from backend.testbench_runner import TestbenchDataset
-    from pydantic import ValidationError
-
     scenarios = _passing_scenarios()
 
     with pytest.raises(ValidationError, match="dataset_version v1 is missing from changelog"):
@@ -735,6 +730,33 @@ def test_load_testbench_fixture_exposes_current_dataset_changelog(tmp_path):
     assert dataset.dataset_version == "v-test"
     assert dataset.current_changelog_entry().version == "v-test"
     assert dataset.current_changelog_entry().summary == "Synthetic fixture for unit tests."
+
+
+def test_testbench_dataset_version_alias_accepts_legacy_version_key():
+    """AliasChoices: a fixture with only 'version' (no 'dataset_version') must still parse."""
+    scenarios = _passing_scenarios()
+    changelog = [
+        {
+            "version": "v0",
+            "released_at": "2026-01-01",
+            "summary": "Initial dataset.",
+            "changes": ["Seeded the required scenario catalog."],
+        }
+    ]
+    # Pass 'version' only — no 'dataset_version' key
+    dataset = TestbenchDataset.model_validate(
+        {
+            "dataset": "test",
+            "version": "v0",
+            "generated_at": "2026-01-01T00:00:00Z",
+            "seed": 0,
+            "scenario_count": len(scenarios),
+            "event_count": sum(len(s["events"]) for s in scenarios),
+            "changelog": changelog,
+            "scenarios": scenarios,
+        }
+    )
+    assert dataset.dataset_version == "v0"
 
 
 def test_load_runner_config_soak_iterations_can_be_overridden(tmp_path):

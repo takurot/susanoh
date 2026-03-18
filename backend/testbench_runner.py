@@ -166,7 +166,7 @@ class ScenarioFixture(BaseModel):
 
 class DatasetChangelogEntry(BaseModel):
     version: str
-    released_at: str
+    released_at: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     summary: str
     changes: list[str] = Field(default_factory=list)
     previous_version: str | None = None
@@ -1406,8 +1406,8 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
             [
                 "## Dataset Release",
                 "",
-                f"- Released At: `{dataset_changelog['released_at']}`",
-                f"- Summary: {dataset_changelog['summary']}",
+                f"- Released At: `{dataset_changelog.get('released_at', 'unknown')}`",
+                f"- Summary: {dataset_changelog.get('summary', '')}",
             ]
         )
         previous_version = dataset_changelog.get("previous_version")
