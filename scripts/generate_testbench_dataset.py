@@ -21,7 +21,48 @@ from backend.l1_screening import (
 )
 
 DEFAULT_MAX_P95_MS = 5000
-DATASET_VERSION = "v0.3.0"
+DATASET_VERSION = "v0.4.0"
+DATASET_CHANGELOG = [
+    {
+        "version": "v0.4.0",
+        "released_at": "2026-03-14",
+        "summary": "Introduce explicit dataset version metadata and release changelog for fixture comparisons.",
+        "changes": [
+            "Add dataset_version and changelog metadata to generated fixture manifests.",
+            "Surface the current release notes in runner artifacts for cross-run comparisons.",
+        ],
+        "previous_version": "v0.3.0",
+    },
+    {
+        "version": "v0.3.0",
+        "released_at": "2026-03-13",
+        "summary": "Add timeline variation replay cases for out-of-order, delayed, and duplicate event delivery.",
+        "changes": [
+            "Generate timeline_variations.json from canonical scenarios.",
+            "Validate timeline variation fixtures against the generator output.",
+        ],
+        "previous_version": "v0.2.0",
+    },
+    {
+        "version": "v0.2.0",
+        "released_at": "2026-03-13",
+        "summary": "Refresh the dataset with threshold-boundary fixtures for rules R1-R4.",
+        "changes": [
+            "Add just_below, at_threshold, and just_above coverage for each L1 rule.",
+            "Validate boundary fixtures against the live L1Engine thresholds.",
+        ],
+        "previous_version": "v0.1.0",
+    },
+    {
+        "version": "v0.1.0",
+        "released_at": "2026-03-05",
+        "summary": "Seed the initial operational testbench scenario catalog and replay stream.",
+        "changes": [
+            "Create 15 baseline scenarios and the flattened events.jsonl replay stream.",
+        ],
+        "previous_version": None,
+    },
+]
 
 
 @dataclass
@@ -911,6 +952,11 @@ def _write_outputs(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if DATASET_CHANGELOG[0]["version"] != DATASET_VERSION:
+        raise ValueError("DATASET_CHANGELOG must be ordered newest-first and match DATASET_VERSION")
+
+    current_release = DATASET_CHANGELOG[0]
+
     flat_events: list[dict[str, Any]] = []
     for scenario in scenarios:
         for order, event in enumerate(scenario["events"], start=1):
@@ -925,11 +971,13 @@ def _write_outputs(
 
     manifest = {
         "dataset": "susanoh-operational-testbench",
-        "version": DATASET_VERSION,
+        "dataset_version": DATASET_VERSION,
+        "version": DATASET_VERSION,  # kept for backward compat with older runners that read "version"
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "seed": seed,
         "scenario_count": len(scenarios),
         "event_count": len(flat_events),
+        "changelog": DATASET_CHANGELOG,
         "scenarios": scenarios,
     }
 
@@ -944,10 +992,12 @@ def _write_outputs(
 
     boundary_manifest = {
         "dataset": "susanoh-operational-testbench-boundaries",
-        "version": manifest["version"],
+        "dataset_version": manifest["dataset_version"],
+        "version": manifest["version"],  # kept for backward compat
         "generated_at": manifest["generated_at"],
         "seed": seed,
         "case_count": len(rule_boundaries),
+        "changelog": DATASET_CHANGELOG,
         "cases": rule_boundaries,
     }
     (output_dir / "rule_boundaries.json").write_text(
@@ -957,10 +1007,12 @@ def _write_outputs(
 
     timeline_manifest = {
         "dataset": "susanoh-operational-testbench-timeline-variations",
-        "version": manifest["version"],
+        "dataset_version": manifest["dataset_version"],
+        "version": manifest["version"],  # kept for backward compat
         "generated_at": manifest["generated_at"],
         "seed": seed,
         "case_count": len(timeline_variations),
+        "changelog": DATASET_CHANGELOG,
         "cases": timeline_variations,
     }
     (output_dir / "timeline_variations.json").write_text(
@@ -971,12 +1023,14 @@ def _write_outputs(
     summary_lines = [
         "# Operational Testbench Dataset (Seed)",
         "",
-        f"- Dataset version: `{manifest['version']}`",
+        f"- Dataset version: `{manifest['dataset_version']}`",
         f"- Seed: `{seed}`",
         f"- Scenario count: `{manifest['scenario_count']}`",
         f"- Event count: `{manifest['event_count']}`",
         f"- Rule boundary cases: `{boundary_manifest['case_count']}`",
         f"- Timeline variation cases: `{timeline_manifest['case_count']}`",
+        f"- Released at: `{current_release['released_at']}`",
+        f"- Current release summary: {current_release['summary']}",
         "",
         "## Risk-tier distribution",
     ]
@@ -1029,6 +1083,15 @@ def _write_outputs(
             f"`{case['variation_type']}`: "
             f"`{case['variation_id']}` -> `{case['scenario_id']}`"
         )
+
+    summary_lines.extend(["", "## Changelog"])
+    for release in DATASET_CHANGELOG:
+        summary_lines.append(f"- `{release['version']}` ({release['released_at']}): {release['summary']}")
+        previous_version = release.get("previous_version")
+        if previous_version:
+            summary_lines.append(f"  Compare from `{previous_version}`")
+        for change in release["changes"]:
+            summary_lines.append(f"  - {change}")
 
     summary_lines.extend(
         [

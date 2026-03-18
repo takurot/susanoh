@@ -39,6 +39,8 @@ def test_timeline_variation_fixture_covers_expected_variation_types():
     payload = _load_timeline_fixture()
 
     assert payload["dataset"] == "susanoh-operational-testbench-timeline-variations"
+    assert payload["dataset_version"].startswith("v")
+    assert payload["changelog"][0]["version"] == payload["dataset_version"]
     assert payload["case_count"] == 3
 
     variation_types = {case["variation_type"] for case in payload["cases"]}
