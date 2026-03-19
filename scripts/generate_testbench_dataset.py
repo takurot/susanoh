@@ -21,8 +21,18 @@ from backend.l1_screening import (
 )
 
 DEFAULT_MAX_P95_MS = 5000
-DATASET_VERSION = "v0.4.0"
+DATASET_VERSION = "v0.5.0"
 DATASET_CHANGELOG = [
+    {
+        "version": "v0.5.0",
+        "released_at": "2026-03-19",
+        "summary": "Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.",
+        "changes": [
+            "Add regression scenarios for gemini_429, redis_timeout, and db_connection_degraded.",
+            "Document the expanded dependency-fault catalog in the generated dataset README.",
+        ],
+        "previous_version": "v0.4.0",
+    },
     {
         "version": "v0.4.0",
         "released_at": "2026-03-14",
@@ -354,6 +364,9 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "title": "Cross-cluster bridge consolidation",
             "pattern_family": "MONEY_LAUNDERING",
             "risk_tier": "high",
+            "fault_injection": {
+                "type": "redis_timeout",
+            },
             "expected": {
                 "target_id": target,
                 "l1_primary_rules": ["R1", "R2", "R4"],
@@ -389,6 +402,9 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "title": "Cashout preparation sequence",
             "pattern_family": "RMT_SMURFING",
             "risk_tier": "high",
+            "fault_injection": {
+                "type": "gemini_429",
+            },
             "expected": {
                 "target_id": target,
                 "l1_primary_rules": ["R1", "R2", "R4"],
@@ -421,6 +437,9 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
             "title": "Sleeper account sudden activation",
             "pattern_family": "MONEY_LAUNDERING",
             "risk_tier": "high",
+            "fault_injection": {
+                "type": "db_connection_degraded",
+            },
             "expected": {
                 "target_id": target,
                 "l1_primary_rules": ["R1", "R3", "R4"],
