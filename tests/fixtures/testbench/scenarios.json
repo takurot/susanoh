@@ -1,12 +1,22 @@
 {
   "dataset": "susanoh-operational-testbench",
-  "dataset_version": "v0.4.0",
-  "version": "v0.4.0",
-  "generated_at": "2026-03-14T12:51:12.870781Z",
+  "dataset_version": "v0.5.0",
+  "version": "v0.5.0",
+  "generated_at": "2026-03-19T11:28:40.621102Z",
   "seed": 20260305,
   "scenario_count": 15,
   "event_count": 125,
   "changelog": [
+    {
+      "version": "v0.5.0",
+      "released_at": "2026-03-19",
+      "summary": "Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.",
+      "changes": [
+        "Add regression scenarios for gemini_429, redis_timeout, and db_connection_degraded.",
+        "Document the expanded dependency-fault catalog in the generated dataset README."
+      ],
+      "previous_version": "v0.4.0"
+    },
     {
       "version": "v0.4.0",
       "released_at": "2026-03-14",
@@ -952,6 +962,9 @@
       "title": "Cross-cluster bridge consolidation",
       "pattern_family": "MONEY_LAUNDERING",
       "risk_tier": "high",
+      "fault_injection": {
+        "type": "redis_timeout"
+      },
       "expected": {
         "target_id": "acct_bridge_hub_01",
         "l1_primary_rules": [
@@ -1141,6 +1154,9 @@
       "title": "Cashout preparation sequence",
       "pattern_family": "RMT_SMURFING",
       "risk_tier": "high",
+      "fault_injection": {
+        "type": "gemini_429"
+      },
       "expected": {
         "target_id": "acct_cashout_01",
         "l1_primary_rules": [
@@ -1347,6 +1363,9 @@
       "title": "Sleeper account sudden activation",
       "pattern_family": "MONEY_LAUNDERING",
       "risk_tier": "high",
+      "fault_injection": {
+        "type": "db_connection_degraded"
+      },
       "expected": {
         "target_id": "acct_sleeper_01",
         "l1_primary_rules": [

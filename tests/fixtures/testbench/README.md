@@ -1,13 +1,13 @@
 # Operational Testbench Dataset (Seed)
 
-- Dataset version: `v0.4.0`
+- Dataset version: `v0.5.0`
 - Seed: `20260305`
 - Scenario count: `15`
 - Event count: `125`
 - Rule boundary cases: `12`
 - Timeline variation cases: `3`
-- Released at: `2026-03-14`
-- Current release summary: Introduce explicit dataset version metadata and release changelog for fixture comparisons.
+- Released at: `2026-03-19`
+- Current release summary: Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.
 
 ## Risk-tier distribution
 - `high`: 8 scenarios
@@ -23,6 +23,9 @@
 ## Regression Fault Injection
 - `fraud_direct_rmt_chat`: `gemini_timeout` (applies only to local regression mode)
 - `fraud_layering_chain_exit`: `gemini_5xx` (applies only to local regression mode)
+- `fraud_cross_cluster_bridge`: `redis_timeout` (applies only to local regression mode)
+- `fraud_cashout_prep_sequence`: `gemini_429` (applies only to local regression mode)
+- `fraud_sleeper_activation`: `db_connection_degraded` (applies only to local regression mode)
 
 ## Rule Boundaries
 - `R1`: `just_below`, `at_threshold`, `just_above`
@@ -36,6 +39,10 @@
 - `duplicate_delivery`: `timeline_duplicate_friend_gifts` -> `legit_friend_gifts_low_value`
 
 ## Changelog
+- `v0.5.0` (2026-03-19): Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.
+  Compare from `v0.4.0`
+  - Add regression scenarios for gemini_429, redis_timeout, and db_connection_degraded.
+  - Document the expanded dependency-fault catalog in the generated dataset README.
 - `v0.4.0` (2026-03-14): Introduce explicit dataset version metadata and release changelog for fixture comparisons.
   Compare from `v0.3.0`
   - Add dataset_version and changelog metadata to generated fixture manifests.

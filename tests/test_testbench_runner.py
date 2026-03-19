@@ -606,6 +606,150 @@ async def test_run_testbench_local_smoke_ignores_fault_injection_metadata(tmp_pa
     assert "fault=gemini_timeout" not in report_text
 
 
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_applies_gemini_429_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "gemini_429"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_429_01",
+            actor_id="acct_fault_sender_429",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-429",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "gemini_429"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert "429 Too Many Requests" in scenario_summary["analysis_reasoning"]
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_tolerates_redis_timeout_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R1", "R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "BANNED"
+    scenario["fault_injection"] = {"type": "redis_timeout"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_redis_01",
+            actor_id="acct_fault_sender_redis",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+        _event(
+            event_id="evt_fault_redis_02",
+            actor_id="acct_fault_sender_redis",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=330_000,
+            market_avg=2_500,
+            chat="bank transfer done",
+            timestamp="2099-01-01T00:00:10Z",
+        ),
+        _event(
+            event_id="evt_fault_redis_03",
+            actor_id="acct_fault_sender_redis",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=260_000,
+            market_avg=2_800,
+            chat="final 12k chunk",
+            timestamp="2099-01-01T00:00:20Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-redis",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "redis_timeout"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert scenario_summary["analysis_reasoning"] == (
+        "[Local fallback: local testbench profile] Rules ['R1', 'R3', 'R4'] were triggered. "
+        "5-minute total=1070000G, transactions=3, unique_senders=1."
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_tolerates_db_connection_degraded_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "db_connection_degraded"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_db_01",
+            actor_id="acct_fault_sender_db",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-db",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "db_connection_degraded"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=db_connection_degraded" in report_text
+
+
 def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):
     """Smoke mode with no explicit selection should return exactly 4 default scenarios."""
     fixture_dir = Path("tests/fixtures/testbench")

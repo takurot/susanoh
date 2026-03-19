@@ -9,7 +9,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum, IntEnum
 from pathlib import Path
@@ -51,6 +51,8 @@ class FaultInjectionType(str, Enum):
     GEMINI_TIMEOUT = "gemini_timeout"
     GEMINI_429 = "gemini_429"
     GEMINI_5XX = "gemini_5xx"
+    REDIS_TIMEOUT = "redis_timeout"
+    DB_CONNECTION_DEGRADED = "db_connection_degraded"
 
 
 class ScenarioFaultInjection(BaseModel):
@@ -73,6 +75,23 @@ class ScenarioFaultInjection(BaseModel):
         if self.type is FaultInjectionType.GEMINI_TIMEOUT:
             return TimeoutError(self.error_message())
         return RuntimeError(self.error_message())
+
+    def validates_via_reasoning(self) -> bool:
+        return self.type in {
+            FaultInjectionType.GEMINI_TIMEOUT,
+            FaultInjectionType.GEMINI_429,
+            FaultInjectionType.GEMINI_5XX,
+        }
+
+
+@dataclass
+class FaultInjectionObservation:
+    triggered: bool = False
+    operations: list[str] = field(default_factory=list)
+
+    def record(self, operation: str) -> None:
+        self.triggered = True
+        self.operations.append(operation)
 
 
 @dataclass(frozen=True)
@@ -658,17 +677,89 @@ async def _run_scenario(
     failures: list[dict[str, Any]] = []
     event_pairs: list[tuple[GameEventLog, dict[str, Any]]] = []
     api_available = True
+    fault_observation = FaultInjectionObservation()
 
-    with _local_background_l2_suppressed(config.profile):
-        for event in namespaced.events:
-            payload, latency_ms, error = await _request_json(
+    with _activated_local_fault_injection(
+        profile=config.profile,
+        mode=config.mode,
+        fault_injection=namespaced.fault_injection,
+        observation=fault_observation,
+    ):
+        with _local_background_l2_suppressed(config.profile):
+            for event in namespaced.events:
+                payload, latency_ms, error = await _request_json(
+                    client=client,
+                    method="POST",
+                    path="/api/v1/events",
+                    retry_attempts=config.retry_attempts,
+                    timeout_seconds=config.timeout_seconds,
+                    headers=event_headers,
+                    json_body=event.model_dump(mode="json"),
+                )
+                if latency_ms > 0:
+                    latencies_ms.append(latency_ms)
+                if error is not None:
+                    api_available = False
+                    failures.append(
+                        _build_failure(
+                            failure_type=FailureType.INFRA_DEPENDENCY,
+                            disposition=FailureDisposition.FAIL_AFTER_RETRY,
+                            mode=config.mode,
+                            scenario_id=scenario.scenario_id,
+                            message=error,
+                            failed_gates=["api_availability"],
+                        )
+                    )
+                    break
+                event_pairs.append((event, payload))
+
+        latest_analysis: dict[str, Any] | None = None
+        if api_available and namespaced.expected.l1_primary_rules:
+            if config.profile is RunnerProfile.LOCAL:
+                analysis_payload, analysis_latency_ms, analysis_error = await _run_local_l2(
+                    scenario=namespaced,
+                    event_pairs=event_pairs,
+                    mode=config.mode,
+                    fault_injection=namespaced.fault_injection,
+                )
+            else:
+                analysis_payload, analysis_latency_ms, analysis_error = await _request_json(
+                    client=client,
+                    method="POST",
+                    path="/api/v1/analyze",
+                    retry_attempts=config.retry_attempts,
+                    timeout_seconds=config.timeout_seconds,
+                    headers=auth_headers,
+                    json_body=_latest_target_event(event_pairs, namespaced.expected.target_id).model_dump(mode="json"),
+                )
+            if analysis_latency_ms > 0 and config.profile is not RunnerProfile.LOCAL:
+                latencies_ms.append(analysis_latency_ms)
+            if analysis_error is not None:
+                api_available = False
+                failures.append(
+                    _build_failure(
+                        failure_type=FailureType.INFRA_DEPENDENCY,
+                        disposition=FailureDisposition.FAIL_AFTER_RETRY,
+                        mode=config.mode,
+                        scenario_id=scenario.scenario_id,
+                        message=analysis_error,
+                        failed_gates=["api_availability"],
+                    )
+                )
+            else:
+                latest_analysis = analysis_payload
+
+        user_payload: dict[str, Any] | None = None
+        transitions_payload: list[dict[str, Any]] = []
+        analyses_payload: list[dict[str, Any]] = []
+        if api_available:
+            user_payload, latency_ms, error = await _request_json(
                 client=client,
-                method="POST",
-                path="/api/v1/events",
+                method="GET",
+                path=f"/api/v1/users/{namespaced.expected.target_id}",
                 retry_attempts=config.retry_attempts,
                 timeout_seconds=config.timeout_seconds,
-                headers=event_headers,
-                json_body=event.model_dump(mode="json"),
+                headers=auth_headers,
             )
             if latency_ms > 0:
                 latencies_ms.append(latency_ms)
@@ -684,122 +775,57 @@ async def _run_scenario(
                         failed_gates=["api_availability"],
                     )
                 )
-                break
-            event_pairs.append((event, payload))
+                user_payload = None
 
-    latest_analysis: dict[str, Any] | None = None
-    if api_available and namespaced.expected.l1_primary_rules:
-        if config.profile is RunnerProfile.LOCAL:
-            analysis_payload, analysis_latency_ms, analysis_error = await _run_local_l2(
-                scenario=namespaced,
-                event_pairs=event_pairs,
-                mode=config.mode,
-                fault_injection=namespaced.fault_injection,
-            )
-        else:
-            analysis_payload, analysis_latency_ms, analysis_error = await _request_json(
+        if api_available:
+            transitions_payload, latency_ms, error = await _request_json(
                 client=client,
-                method="POST",
-                path="/api/v1/analyze",
+                method="GET",
+                path="/api/v1/transitions?limit=200",
                 retry_attempts=config.retry_attempts,
                 timeout_seconds=config.timeout_seconds,
                 headers=auth_headers,
-                json_body=_latest_target_event(event_pairs, namespaced.expected.target_id).model_dump(mode="json"),
             )
-        if analysis_latency_ms > 0 and config.profile is not RunnerProfile.LOCAL:
-            latencies_ms.append(analysis_latency_ms)
-        if analysis_error is not None:
-            api_available = False
-            failures.append(
-                _build_failure(
-                    failure_type=FailureType.INFRA_DEPENDENCY,
-                    disposition=FailureDisposition.FAIL_AFTER_RETRY,
-                    mode=config.mode,
-                    scenario_id=scenario.scenario_id,
-                    message=analysis_error,
-                    failed_gates=["api_availability"],
+            if latency_ms > 0:
+                latencies_ms.append(latency_ms)
+            if error is not None:
+                api_available = False
+                failures.append(
+                    _build_failure(
+                        failure_type=FailureType.INFRA_DEPENDENCY,
+                        disposition=FailureDisposition.FAIL_AFTER_RETRY,
+                        mode=config.mode,
+                        scenario_id=scenario.scenario_id,
+                        message=error,
+                        failed_gates=["api_availability"],
+                    )
                 )
-            )
-        else:
-            latest_analysis = analysis_payload
+                transitions_payload = []
 
-    user_payload: dict[str, Any] | None = None
-    transitions_payload: list[dict[str, Any]] = []
-    analyses_payload: list[dict[str, Any]] = []
-    if api_available:
-        user_payload, latency_ms, error = await _request_json(
-            client=client,
-            method="GET",
-            path=f"/api/v1/users/{namespaced.expected.target_id}",
-            retry_attempts=config.retry_attempts,
-            timeout_seconds=config.timeout_seconds,
-            headers=auth_headers,
-        )
-        if latency_ms > 0:
-            latencies_ms.append(latency_ms)
-        if error is not None:
-            api_available = False
-            failures.append(
-                _build_failure(
-                    failure_type=FailureType.INFRA_DEPENDENCY,
-                    disposition=FailureDisposition.FAIL_AFTER_RETRY,
-                    mode=config.mode,
-                    scenario_id=scenario.scenario_id,
-                    message=error,
-                    failed_gates=["api_availability"],
-                )
+        if api_available:
+            analyses_payload, latency_ms, error = await _request_json(
+                client=client,
+                method="GET",
+                path="/api/v1/analyses?limit=100",
+                retry_attempts=config.retry_attempts,
+                timeout_seconds=config.timeout_seconds,
+                headers=auth_headers,
             )
-            user_payload = None
-
-    if api_available:
-        transitions_payload, latency_ms, error = await _request_json(
-            client=client,
-            method="GET",
-            path="/api/v1/transitions?limit=200",
-            retry_attempts=config.retry_attempts,
-            timeout_seconds=config.timeout_seconds,
-            headers=auth_headers,
-        )
-        if latency_ms > 0:
-            latencies_ms.append(latency_ms)
-        if error is not None:
-            api_available = False
-            failures.append(
-                _build_failure(
-                    failure_type=FailureType.INFRA_DEPENDENCY,
-                    disposition=FailureDisposition.FAIL_AFTER_RETRY,
-                    mode=config.mode,
-                    scenario_id=scenario.scenario_id,
-                    message=error,
-                    failed_gates=["api_availability"],
+            if latency_ms > 0:
+                latencies_ms.append(latency_ms)
+            if error is not None:
+                api_available = False
+                failures.append(
+                    _build_failure(
+                        failure_type=FailureType.INFRA_DEPENDENCY,
+                        disposition=FailureDisposition.FAIL_AFTER_RETRY,
+                        mode=config.mode,
+                        scenario_id=scenario.scenario_id,
+                        message=error,
+                        failed_gates=["api_availability"],
+                    )
                 )
-            )
-            transitions_payload = []
-
-    if api_available:
-        analyses_payload, latency_ms, error = await _request_json(
-            client=client,
-            method="GET",
-            path="/api/v1/analyses?limit=100",
-            retry_attempts=config.retry_attempts,
-            timeout_seconds=config.timeout_seconds,
-            headers=auth_headers,
-        )
-        if latency_ms > 0:
-            latencies_ms.append(latency_ms)
-        if error is not None:
-            api_available = False
-            failures.append(
-                _build_failure(
-                    failure_type=FailureType.INFRA_DEPENDENCY,
-                    disposition=FailureDisposition.FAIL_AFTER_RETRY,
-                    mode=config.mode,
-                    scenario_id=scenario.scenario_id,
-                    message=error,
-                    failed_gates=["api_availability"],
-                )
-            )
-            analyses_payload = []
+                analyses_payload = []
 
     if latest_analysis is None and analyses_payload:
         latest_analysis = next(
@@ -852,11 +878,14 @@ async def _run_scenario(
         "latency_p95_match": p95_ok,
     }
     if applied_fault_injection:
-        reasoning = latest_analysis.get("reasoning", "") if latest_analysis else ""
-        gates["fault_injection_match"] = (
-            isinstance(reasoning, str)
-            and namespaced.fault_injection.expected_reason_substring() in reasoning
-        )
+        if namespaced.fault_injection.validates_via_reasoning():
+            reasoning = latest_analysis.get("reasoning", "") if latest_analysis else ""
+            gates["fault_injection_match"] = (
+                isinstance(reasoning, str)
+                and namespaced.fault_injection.expected_reason_substring() in reasoning
+            )
+        else:
+            gates["fault_injection_match"] = fault_observation.triggered
     failed_gates = [name for name, ok in gates.items() if not ok]
 
     expected_final_state = expected_state_path[-1] if expected_state_path else AccountState.NORMAL.value
@@ -897,6 +926,7 @@ async def _run_scenario(
             else None
         ),
         "fault_injection_applied": applied_fault_injection,
+        "fault_injection_observations": fault_observation.operations,
         "analysis_reasoning": latest_analysis.get("reasoning") if latest_analysis else None,
         "request_count": len(latencies_ms),
         "latency_ms": latency_stats,
@@ -1055,6 +1085,69 @@ def _record_soak_execution(
     aggregate["last_analysis_reasoning"] = scenario_summary.get("analysis_reasoning")
 
 
+@contextmanager
+def _activated_local_fault_injection(
+    *,
+    profile: RunnerProfile,
+    mode: TestbenchMode,
+    fault_injection: ScenarioFaultInjection | None,
+    observation: FaultInjectionObservation,
+):
+    if (
+        profile is not RunnerProfile.LOCAL
+        or fault_injection is None
+        or not fault_injection.applies(profile=profile, mode=mode)
+        or fault_injection.validates_via_reasoning()
+    ):
+        yield
+        return
+
+    import backend.main as main_module
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+
+    if fault_injection.type is FaultInjectionType.REDIS_TIMEOUT:
+        class _TimeoutRedisClient:
+            def __getattr__(self, name: str):
+                async def _raise(*args, **kwargs):
+                    del args, kwargs
+                    observation.record(name)
+                    raise RedisTimeoutError("Connection timed out")
+
+                return _raise
+
+        original_sm_redis = main_module.sm.redis
+        original_l1_redis = main_module.l1.redis
+        original_l2_redis = main_module.l2.redis
+        timeout_redis = _TimeoutRedisClient()
+        main_module.sm.redis = timeout_redis
+        main_module.l1.redis = timeout_redis
+        main_module.l2.redis = timeout_redis
+        try:
+            yield
+        finally:
+            main_module.sm.redis = original_sm_redis
+            main_module.l1.redis = original_l1_redis
+            main_module.l2.redis = original_l2_redis
+        return
+
+    if fault_injection.type is FaultInjectionType.DB_CONNECTION_DEGRADED:
+        original_persist_runtime_snapshot = main_module.persistence_store.persist_runtime_snapshot
+
+        def _raise_persistence_error(*args, **kwargs):
+            del args, kwargs
+            observation.record("persist_runtime_snapshot")
+            raise RuntimeError("database connection degraded")
+
+        main_module.persistence_store.persist_runtime_snapshot = _raise_persistence_error
+        try:
+            yield
+        finally:
+            main_module.persistence_store.persist_runtime_snapshot = original_persist_runtime_snapshot
+        return
+
+    yield
+
+
 def _annotate_failures_for_iteration(
     failures: Sequence[Mapping[str, Any]],
     *,
@@ -1145,9 +1238,13 @@ async def _run_local_l2(
             triggered_rules,
             current_state,
         )
-        if fault_injection is not None and fault_injection.applies(
-            profile=RunnerProfile.LOCAL,
-            mode=mode,
+        if (
+            fault_injection is not None
+            and fault_injection.applies(
+                profile=RunnerProfile.LOCAL,
+                mode=mode,
+            )
+            and fault_injection.validates_via_reasoning()
         ):
             verdict = await _run_local_l2_with_fault_injection(
                 analysis_req=analysis_req,
