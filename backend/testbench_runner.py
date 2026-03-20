@@ -53,6 +53,9 @@ class FaultInjectionType(str, Enum):
     GEMINI_5XX = "gemini_5xx"
     REDIS_TIMEOUT = "redis_timeout"
     DB_CONNECTION_DEGRADED = "db_connection_degraded"
+    LLM_MALFORMED_JSON = "llm_malformed_json"
+    LLM_CONTEXT_LENGTH_EXCEEDED = "llm_context_length_exceeded"
+    LLM_TOKEN_LIMIT = "llm_token_limit"
 
 
 class ScenarioFaultInjection(BaseModel):
@@ -66,6 +69,12 @@ class ScenarioFaultInjection(BaseModel):
             return "Gemini API took too long"
         if self.type is FaultInjectionType.GEMINI_429:
             return "429 Too Many Requests"
+        if self.type is FaultInjectionType.LLM_MALFORMED_JSON:
+            return "malformed JSON response"
+        if self.type is FaultInjectionType.LLM_CONTEXT_LENGTH_EXCEEDED:
+            return "context length exceeded"
+        if self.type is FaultInjectionType.LLM_TOKEN_LIMIT:
+            return "token limit exceeded"
         return "503 Service Unavailable"
 
     def expected_reason_substring(self) -> str:
@@ -81,6 +90,9 @@ class ScenarioFaultInjection(BaseModel):
             FaultInjectionType.GEMINI_TIMEOUT,
             FaultInjectionType.GEMINI_429,
             FaultInjectionType.GEMINI_5XX,
+            FaultInjectionType.LLM_MALFORMED_JSON,
+            FaultInjectionType.LLM_CONTEXT_LENGTH_EXCEEDED,
+            FaultInjectionType.LLM_TOKEN_LIMIT,
         }
 
 

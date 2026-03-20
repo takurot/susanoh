@@ -392,7 +392,7 @@ async def test_run_testbench_local_regression_fixture_passes(tmp_path):
     result = await run_testbench(config)
 
     assert result.exit_code is RunnerExitCode.ALL_PASS
-    assert result.summary["scenarios_total"] == 15
+    assert result.summary["scenarios_total"] == 18
     assert result.summary["scenarios_failed"] == 0
     assert result.summary["failure_count"] == 0
 
@@ -748,6 +748,135 @@ async def test_run_testbench_local_regression_tolerates_db_connection_degraded_f
     assert scenario_summary["quality_gates"]["fault_injection_match"] is True
     report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
     assert "fault=db_connection_degraded" in report_text
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_applies_llm_malformed_json_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R1", "R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "BANNED"
+    scenario["fault_injection"] = {"type": "llm_malformed_json"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_llm_json_01",
+            actor_id="acct_fault_sender_llm_json",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=1_200_000,
+            market_avg=10_000,
+            chat="send 40k via PayPal final deal",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-llm-json",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "llm_malformed_json"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert "malformed JSON response" in scenario_summary["analysis_reasoning"]
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=llm_malformed_json" in report_text
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_applies_llm_context_length_exceeded_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "llm_context_length_exceeded"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_llm_ctx_01",
+            actor_id="acct_fault_sender_llm_ctx",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-llm-ctx",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "llm_context_length_exceeded"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert "context length exceeded" in scenario_summary["analysis_reasoning"]
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=llm_context_length_exceeded" in report_text
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_regression_applies_llm_token_limit_fault_injection(tmp_path):
+    scenarios = _passing_scenarios()
+    scenario = next(item for item in scenarios if item["scenario_id"] == "fraud_direct_rmt_chat")
+    scenario["expected"]["l1_primary_rules"] = ["R3", "R4"]
+    scenario["expected"]["l2_fallback_action"] = "UNDER_SURVEILLANCE"
+    scenario["fault_injection"] = {"type": "llm_token_limit"}
+    scenario["events"] = [
+        _event(
+            event_id="evt_fault_llm_tok_01",
+            actor_id="acct_fault_sender_llm_tok",
+            target_id="acct_target_fraud_direct_rmt_chat",
+            amount=480_000,
+            market_avg=2_000,
+            chat="send 15k via PayPal and confirm",
+            timestamp="2099-01-01T00:00:00Z",
+        ),
+    ]
+
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-fault-llm-tok",
+        selected_scenarios=["fraud_direct_rmt_chat"],
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.failures == []
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["fault_injection"] == {"type": "llm_token_limit"}
+    assert scenario_summary["fault_injection_applied"] is True
+    assert scenario_summary["quality_gates"]["fault_injection_match"] is True
+    assert "token limit exceeded" in scenario_summary["analysis_reasoning"]
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "fault=llm_token_limit" in report_text
 
 
 def test_select_scenarios_smoke_mode_returns_default_four(tmp_path):

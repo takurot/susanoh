@@ -21,8 +21,18 @@ from backend.l1_screening import (
 )
 
 DEFAULT_MAX_P95_MS = 5000
-DATASET_VERSION = "v0.5.0"
+DATASET_VERSION = "v0.6.0"
 DATASET_CHANGELOG = [
+    {
+        "version": "v0.6.0",
+        "released_at": "2026-03-19",
+        "summary": "Add LLM-specific fault scenarios for malformed JSON, context length exceeded, and token limit exceeded.",
+        "changes": [
+            "Add fault scenarios for llm_malformed_json, llm_context_length_exceeded, and llm_token_limit.",
+            "Validate that all three LLM fault types produce the expected UNDER_SURVEILLANCE/BANNED fallback.",
+        ],
+        "previous_version": "v0.5.0",
+    },
     {
         "version": "v0.5.0",
         "released_at": "2026-03-19",
@@ -446,6 +456,110 @@ def _build_scenarios(factory: EventFactory, rng: random.Random) -> list[dict[str
                 "l2_fallback_action": "BANNED",
                 "max_p95_ms": DEFAULT_MAX_P95_MS,
                 "notes": "Dormant target suddenly receives high-value bursts from fresh accounts.",
+            },
+            "events": events,
+        }
+    )
+
+    # LLM-specific fault injection scenarios
+    target = "acct_rmt_llm_json_01"
+    events = [
+        event(
+            "acct_seller_llm_01",
+            target,
+            1_200_000,
+            market_avg=10_000,
+            chat="send 40k via PayPal final deal",
+            actor_level=3,
+            account_age_days=2,
+            item_id="itm_rmt_token_01",
+        ),
+    ]
+    scenarios.append(
+        {
+            "scenario_id": "fault_llm_malformed_response",
+            "title": "LLM returns malformed JSON — fallback to rule-based arbitration",
+            "pattern_family": "RMT_DIRECT",
+            "risk_tier": "high",
+            "fault_injection": {
+                "type": "llm_malformed_json",
+            },
+            "expected": {
+                "target_id": target,
+                "l1_primary_rules": ["R1", "R3", "R4"],
+                "l2_fallback_action": "BANNED",
+                "max_p95_ms": DEFAULT_MAX_P95_MS,
+                "notes": "Simulates Gemini returning unparseable JSON; system must fall back to rule-based BANNED verdict.",
+            },
+            "events": events,
+        }
+    )
+
+    target = "acct_smurfing_llm_ctx_01"
+    events = []
+    for idx in range(1, 13):
+        events.append(
+            event(
+                f"acct_ctx_sender_{idx:02d}",
+                target,
+                100_000,
+                market_avg=800,
+                chat=None,
+                actor_level=rng.randint(2, 8),
+                account_age_days=rng.randint(1, 6),
+                item_id="itm_bulk_mat_01",
+            )
+        )
+    scenarios.append(
+        {
+            "scenario_id": "fault_llm_context_length_exceeded",
+            "title": "LLM context length exceeded by many-event smurfing — fallback arbitration",
+            "pattern_family": "RMT_SMURFING",
+            "risk_tier": "high",
+            "fault_injection": {
+                "type": "llm_context_length_exceeded",
+            },
+            "expected": {
+                "target_id": target,
+                "l1_primary_rules": ["R1", "R2", "R3"],
+                "l2_fallback_action": "BANNED",
+                "max_p95_ms": DEFAULT_MAX_P95_MS,
+                "notes": "Simulates Gemini failing due to context overflow on a dense multi-sender scenario; rule-based fallback must produce BANNED.",
+            },
+            "events": events,
+        }
+    )
+
+    target = "acct_rmt_llm_token_01"
+    events = []
+    for idx in range(1, 4):
+        events.append(
+            event(
+                f"acct_token_seller_{idx:02d}",
+                target,
+                420_000,
+                market_avg=3_000,
+                chat=None,
+                actor_level=rng.randint(4, 12),
+                account_age_days=rng.randint(5, 20),
+                item_id="itm_crafted_gear_01",
+            )
+        )
+    scenarios.append(
+        {
+            "scenario_id": "fault_llm_token_limit",
+            "title": "LLM token limit exceeded — fallback to UNDER_SURVEILLANCE",
+            "pattern_family": "MONEY_LAUNDERING",
+            "risk_tier": "high",
+            "fault_injection": {
+                "type": "llm_token_limit",
+            },
+            "expected": {
+                "target_id": target,
+                "l1_primary_rules": ["R1", "R3"],
+                "l2_fallback_action": "UNDER_SURVEILLANCE",
+                "max_p95_ms": DEFAULT_MAX_P95_MS,
+                "notes": "Simulates Gemini failing due to token limit; rule-based fallback (R1+R3 only, <3 senders) must produce UNDER_SURVEILLANCE.",
             },
             "events": events,
         }
