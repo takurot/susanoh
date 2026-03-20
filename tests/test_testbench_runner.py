@@ -788,7 +788,7 @@ async def test_run_testbench_local_regression_applies_llm_malformed_json_fault_i
     assert scenario_summary["fault_injection"] == {"type": "llm_malformed_json"}
     assert scenario_summary["fault_injection_applied"] is True
     assert scenario_summary["quality_gates"]["fault_injection_match"] is True
-    assert "malformed JSON response" in scenario_summary["analysis_reasoning"]
+    assert "JSON parse failed" in scenario_summary["analysis_reasoning"]
     report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
     assert "fault=llm_malformed_json" in report_text
 

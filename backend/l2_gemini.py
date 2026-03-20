@@ -153,6 +153,7 @@ class L2Engine:
         *,
         api_key: str | None = None,
         gemini_call: GeminiCall | None = None,
+        gemini_response_text: str | None = None,
     ) -> ArbitrationResult:
         resolved_api_key = (
             os.environ.get("GEMINI_API_KEY", "")
@@ -160,6 +161,14 @@ class L2Engine:
             else api_key
         )
         resolved_gemini_call = gemini_call or self._call_gemini
+        if gemini_response_text is not None:
+            async def _override_with_text(analysis_request: AnalysisRequest, _api_key: str) -> ArbitrationResult:
+                return self._parse_gemini_response_text(
+                    analysis_request,
+                    gemini_response_text,
+                )
+
+            resolved_gemini_call = _override_with_text
         return await self._analyze_with_gemini_call(
             request,
             api_key=resolved_api_key,
@@ -211,7 +220,13 @@ class L2Engine:
             ),
         )
 
-        text = response.text
+        return self._parse_gemini_response_text(request, response.text)
+
+    def _parse_gemini_response_text(
+        self,
+        request: AnalysisRequest,
+        text: str,
+    ) -> ArbitrationResult:
         try:
             data = json.loads(text)
         except json.JSONDecodeError:

@@ -196,3 +196,23 @@ async def test_analyze_with_overrides_isolates_fault_injection_from_process_stat
     finally:
         if old is not None:
             os.environ["GEMINI_API_KEY"] = old
+
+
+@pytest.mark.asyncio
+async def test_analyze_with_overrides_can_exercise_json_parse_fallback():
+    old = os.environ.pop("GEMINI_API_KEY", None)
+    try:
+        engine = L2Engine()
+
+        result = await engine.analyze_with_overrides(
+            _make_request(),
+            api_key="override-key",
+            gemini_response_text='{"broken_json": ',
+        )
+
+        assert "Local fallback: JSON parse failed" in result.reasoning
+        assert result.recommended_action == AccountState.BANNED
+        assert len(await engine.get_analyses()) == 1
+    finally:
+        if old is not None:
+            os.environ["GEMINI_API_KEY"] = old

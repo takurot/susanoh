@@ -78,6 +78,8 @@ class ScenarioFaultInjection(BaseModel):
         return "503 Service Unavailable"
 
     def expected_reason_substring(self) -> str:
+        if self.type is FaultInjectionType.LLM_MALFORMED_JSON:
+            return "Local fallback: JSON parse failed"
         return f"Local fallback: API error: {self.error_message()}"
 
     def build_exception(self) -> Exception:
@@ -1284,6 +1286,13 @@ async def _run_local_l2_with_fault_injection(
     fault_injection: ScenarioFaultInjection,
 ):
     import backend.main as main_module
+
+    if fault_injection.type is FaultInjectionType.LLM_MALFORMED_JSON:
+        return await main_module.l2.analyze_with_overrides(
+            analysis_req,
+            api_key="testbench-fault-injection",
+            gemini_response_text='{"broken_json": ',
+        )
 
     async def _raise_injected_error(_request, _api_key):
         raise fault_injection.build_exception()
