@@ -1,16 +1,16 @@
 # Operational Testbench Dataset (Seed)
 
-- Dataset version: `v0.5.0`
+- Dataset version: `v0.6.0`
 - Seed: `20260305`
-- Scenario count: `15`
-- Event count: `125`
+- Scenario count: `18`
+- Event count: `141`
 - Rule boundary cases: `12`
 - Timeline variation cases: `3`
 - Released at: `2026-03-19`
-- Current release summary: Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.
+- Current release summary: Add LLM-specific fault scenarios for malformed JSON, context length exceeded, and token limit exceeded.
 
 ## Risk-tier distribution
-- `high`: 8 scenarios
+- `high`: 11 scenarios
 - `low`: 4 scenarios
 - `medium`: 3 scenarios
 
@@ -26,6 +26,9 @@
 - `fraud_cross_cluster_bridge`: `redis_timeout` (applies only to local regression mode)
 - `fraud_cashout_prep_sequence`: `gemini_429` (applies only to local regression mode)
 - `fraud_sleeper_activation`: `db_connection_degraded` (applies only to local regression mode)
+- `fault_llm_malformed_response`: `llm_malformed_json` (applies only to local regression mode)
+- `fault_llm_context_length_exceeded`: `llm_context_length_exceeded` (applies only to local regression mode)
+- `fault_llm_token_limit`: `llm_token_limit` (applies only to local regression mode)
 
 ## Rule Boundaries
 - `R1`: `just_below`, `at_threshold`, `just_above`
@@ -39,6 +42,10 @@
 - `duplicate_delivery`: `timeline_duplicate_friend_gifts` -> `legit_friend_gifts_low_value`
 
 ## Changelog
+- `v0.6.0` (2026-03-19): Add LLM-specific fault scenarios for malformed JSON, context length exceeded, and token limit exceeded.
+  Compare from `v0.5.0`
+  - Add fault scenarios for llm_malformed_json, llm_context_length_exceeded, and llm_token_limit.
+  - Validate that all three LLM fault types produce the expected UNDER_SURVEILLANCE/BANNED fallback.
 - `v0.5.0` (2026-03-19): Expand regression fault injection coverage to Redis, Gemini 429, and DB persistence degradation.
   Compare from `v0.4.0`
   - Add regression scenarios for gemini_429, redis_timeout, and db_connection_degraded.

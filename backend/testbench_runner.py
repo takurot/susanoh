@@ -53,6 +53,9 @@ class FaultInjectionType(str, Enum):
     GEMINI_5XX = "gemini_5xx"
     REDIS_TIMEOUT = "redis_timeout"
     DB_CONNECTION_DEGRADED = "db_connection_degraded"
+    LLM_MALFORMED_JSON = "llm_malformed_json"
+    LLM_CONTEXT_LENGTH_EXCEEDED = "llm_context_length_exceeded"
+    LLM_TOKEN_LIMIT = "llm_token_limit"
 
 
 class ScenarioFaultInjection(BaseModel):
@@ -66,9 +69,17 @@ class ScenarioFaultInjection(BaseModel):
             return "Gemini API took too long"
         if self.type is FaultInjectionType.GEMINI_429:
             return "429 Too Many Requests"
+        if self.type is FaultInjectionType.LLM_MALFORMED_JSON:
+            return "malformed JSON response"
+        if self.type is FaultInjectionType.LLM_CONTEXT_LENGTH_EXCEEDED:
+            return "context length exceeded"
+        if self.type is FaultInjectionType.LLM_TOKEN_LIMIT:
+            return "token limit exceeded"
         return "503 Service Unavailable"
 
     def expected_reason_substring(self) -> str:
+        if self.type is FaultInjectionType.LLM_MALFORMED_JSON:
+            return "Local fallback: JSON parse failed"
         return f"Local fallback: API error: {self.error_message()}"
 
     def build_exception(self) -> Exception:
@@ -81,6 +92,9 @@ class ScenarioFaultInjection(BaseModel):
             FaultInjectionType.GEMINI_TIMEOUT,
             FaultInjectionType.GEMINI_429,
             FaultInjectionType.GEMINI_5XX,
+            FaultInjectionType.LLM_MALFORMED_JSON,
+            FaultInjectionType.LLM_CONTEXT_LENGTH_EXCEEDED,
+            FaultInjectionType.LLM_TOKEN_LIMIT,
         }
 
 
@@ -1272,6 +1286,13 @@ async def _run_local_l2_with_fault_injection(
     fault_injection: ScenarioFaultInjection,
 ):
     import backend.main as main_module
+
+    if fault_injection.type is FaultInjectionType.LLM_MALFORMED_JSON:
+        return await main_module.l2.analyze_with_overrides(
+            analysis_req,
+            api_key="testbench-fault-injection",
+            gemini_response_text='{"broken_json": ',
+        )
 
     async def _raise_injected_error(_request, _api_key):
         raise fault_injection.build_exception()
