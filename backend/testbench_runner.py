@@ -691,6 +691,8 @@ async def _run_scenario(
     failures: list[dict[str, Any]] = []
     event_pairs: list[tuple[GameEventLog, dict[str, Any]]] = []
     api_available = True
+    request_count = 0
+    error_count = 0
     fault_observation = FaultInjectionObservation()
 
     with _activated_local_fault_injection(
@@ -701,6 +703,7 @@ async def _run_scenario(
     ):
         with _local_background_l2_suppressed(config.profile):
             for event in namespaced.events:
+                request_count += 1
                 payload, latency_ms, error = await _request_json(
                     client=client,
                     method="POST",
@@ -713,6 +716,7 @@ async def _run_scenario(
                 if latency_ms > 0:
                     latencies_ms.append(latency_ms)
                 if error is not None:
+                    error_count += 1
                     api_available = False
                     failures.append(
                         _build_failure(
@@ -737,6 +741,7 @@ async def _run_scenario(
                     fault_injection=namespaced.fault_injection,
                 )
             else:
+                request_count += 1
                 analysis_payload, analysis_latency_ms, analysis_error = await _request_json(
                     client=client,
                     method="POST",
@@ -749,6 +754,7 @@ async def _run_scenario(
             if analysis_latency_ms > 0 and config.profile is not RunnerProfile.LOCAL:
                 latencies_ms.append(analysis_latency_ms)
             if analysis_error is not None:
+                error_count += 1
                 api_available = False
                 failures.append(
                     _build_failure(
@@ -767,6 +773,7 @@ async def _run_scenario(
         transitions_payload: list[dict[str, Any]] = []
         analyses_payload: list[dict[str, Any]] = []
         if api_available:
+            request_count += 1
             user_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -778,6 +785,7 @@ async def _run_scenario(
             if latency_ms > 0:
                 latencies_ms.append(latency_ms)
             if error is not None:
+                error_count += 1
                 api_available = False
                 failures.append(
                     _build_failure(
@@ -792,6 +800,7 @@ async def _run_scenario(
                 user_payload = None
 
         if api_available:
+            request_count += 1
             transitions_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -803,6 +812,7 @@ async def _run_scenario(
             if latency_ms > 0:
                 latencies_ms.append(latency_ms)
             if error is not None:
+                error_count += 1
                 api_available = False
                 failures.append(
                     _build_failure(
@@ -817,6 +827,7 @@ async def _run_scenario(
                 transitions_payload = []
 
         if api_available:
+            request_count += 1
             analyses_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -828,6 +839,7 @@ async def _run_scenario(
             if latency_ms > 0:
                 latencies_ms.append(latency_ms)
             if error is not None:
+                error_count += 1
                 api_available = False
                 failures.append(
                     _build_failure(
@@ -916,6 +928,11 @@ async def _run_scenario(
                 scenario_id=scenario.scenario_id,
                 message=f"quality gates failed: {', '.join(failed_gates)}",
                 failed_gates=failed_gates,
+                trace={
+                    "triggered_rules": observed_l1_rules,
+                    "state_snapshot": {"state": final_state, "target_id": namespaced.expected.target_id},
+                    "observed_state_path": observed_state_path,
+                },
             )
         )
 
@@ -942,7 +959,9 @@ async def _run_scenario(
         "fault_injection_applied": applied_fault_injection,
         "fault_injection_observations": fault_observation.operations,
         "analysis_reasoning": latest_analysis.get("reasoning") if latest_analysis else None,
-        "request_count": len(latencies_ms),
+        "request_count": request_count,
+        "error_rate": round(error_count / request_count, 4) if request_count > 0 else 0.0,
+        "state_drift_count": 0,
         "latency_ms": latency_stats,
         "quality_gates": gates,
     }
@@ -1396,8 +1415,9 @@ def _build_failure(
     scenario_id: str | None,
     message: str,
     failed_gates: list[str],
+    trace: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "scenario_id": scenario_id,
         "failure_type": failure_type.value,
         "message": message,
@@ -1405,6 +1425,9 @@ def _build_failure(
         "ci_block": should_block_ci(failure_type, disposition, mode, load_operational_testbench_policy().failure),
         "notify_ops": should_notify_ops(failure_type, disposition, mode, load_operational_testbench_policy().failure),
     }
+    if trace is not None:
+        result["trace"] = trace
+    return result
 
 
 def _determine_exit_code(failures: Sequence[Mapping[str, Any]]) -> RunnerExitCode:
@@ -1441,6 +1464,7 @@ def _build_terminal_summary(
         failed = execution_totals["failed"]
 
     success_rate = round((passed / total), 4) if total else 0.0
+    request_count = sum(int(scenario.get("request_count", 0)) for scenario in scenario_results)
     latency_summary = _latency_summary(latencies_ms)
     slo = load_operational_testbench_policy().slos[config.mode]
     slo_passed = (
@@ -1461,7 +1485,7 @@ def _build_terminal_summary(
         "scenarios_total": total,
         "scenarios_passed": passed,
         "scenarios_failed": failed,
-        "request_count": len(latencies_ms),
+        "request_count": request_count,
         "success_rate": success_rate,
         "latency_ms": latency_summary,
         "slo": {
@@ -1481,11 +1505,95 @@ def _build_terminal_summary(
     return summary
 
 
+def _matches_previous_run_summary(
+    candidate: Mapping[str, Any],
+    current_summary: Mapping[str, Any],
+) -> bool:
+    return (
+        candidate.get("profile") == current_summary.get("profile")
+        and candidate.get("mode") == current_summary.get("mode")
+        and candidate.get("dataset") == current_summary.get("dataset")
+    )
+
+
+def _find_previous_run_summary(
+    artifacts_dir: Path,
+    current_summary: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    runs_root = artifacts_dir.parent
+    current_run_id = artifacts_dir.name
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    try:
+        for entry in runs_root.iterdir():
+            if entry.is_dir() and entry.name != current_run_id:
+                summary_file = entry / "summary.json"
+                if summary_file.exists():
+                    try:
+                        candidate = json.loads(summary_file.read_text(encoding="utf-8"))
+                        if _matches_previous_run_summary(candidate, current_summary):
+                            candidates.append((entry.stat().st_mtime, candidate))
+                    except OSError:
+                        pass
+                    except Exception:
+                        pass
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    _, latest = max(candidates)
+    return latest
+
+
+def _build_diff_section(current: Mapping[str, Any], prev: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = [
+        "## Diff from Previous Run",
+        "",
+        f"- Previous Run ID: `{prev.get('run_id', 'unknown')}`",
+        f"- Previous Status: `{prev.get('status', 'unknown')}`",
+        "",
+    ]
+    prev_success = float(prev.get("success_rate", 0.0))
+    curr_success = float(current.get("success_rate", 0.0))
+    success_delta = round(curr_success - prev_success, 4)
+    prev_p95 = float(prev.get("latency_ms", {}).get("p95", 0.0))
+    curr_p95 = float(current.get("latency_ms", {}).get("p95", 0.0))
+    p95_delta = round(curr_p95 - prev_p95, 2)
+    lines.extend([
+        f"- Success Rate: `{prev_success}` → `{curr_success}` (Δ `{success_delta:+.4f}`)",
+        f"- Latency p95: `{prev_p95}` ms → `{curr_p95}` ms (Δ `{p95_delta:+.2f}` ms)",
+        "",
+    ])
+    prev_scenarios = {s["scenario_id"]: s for s in prev.get("scenarios", [])}
+    curr_scenarios = {s["scenario_id"]: s for s in current.get("scenarios", [])}
+    changed: list[str] = []
+    for sid, curr_s in curr_scenarios.items():
+        if sid not in prev_scenarios:
+            changed.append(f"  - `{sid}`: NEW ({'PASS' if curr_s['passed'] else 'FAIL'})")
+        else:
+            prev_s = prev_scenarios[sid]
+            if curr_s["passed"] != prev_s["passed"]:
+                prev_state = "PASS" if prev_s["passed"] else "FAIL"
+                curr_state = "PASS" if curr_s["passed"] else "FAIL"
+                changed.append(f"  - `{sid}`: {prev_state} → {curr_state}")
+    for sid in prev_scenarios:
+        if sid not in curr_scenarios:
+            changed.append(f"  - `{sid}`: REMOVED")
+    if changed:
+        lines.extend(["### Changed Scenarios", ""])
+        lines.extend(changed)
+        lines.append("")
+    else:
+        lines.append("No scenario-level changes from previous run.")
+        lines.append("")
+    return lines
+
+
 def _write_artifacts(
     artifacts_dir: Path,
     summary: dict[str, Any],
     failures: list[dict[str, Any]],
 ) -> None:
+    prev_summary = _find_previous_run_summary(artifacts_dir, summary)
     (artifacts_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=True, indent=2),
         encoding="utf-8",
@@ -1495,7 +1603,7 @@ def _write_artifacts(
         encoding="utf-8",
     )
     (artifacts_dir / "report.md").write_text(
-        _build_report_markdown(summary, failures),
+        _build_report_markdown(summary, failures, prev_summary=prev_summary),
         encoding="utf-8",
     )
     (artifacts_dir / "junit.xml").write_text(
@@ -1504,7 +1612,12 @@ def _write_artifacts(
     )
 
 
-def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mapping[str, Any]]) -> str:
+def _build_report_markdown(
+    summary: Mapping[str, Any],
+    failures: Sequence[Mapping[str, Any]],
+    *,
+    prev_summary: Mapping[str, Any] | None = None,
+) -> str:
     lines = [
         "# Susanoh Operational Testbench Report",
         "",
@@ -1600,6 +1713,10 @@ def _build_report_markdown(summary: Mapping[str, Any], failures: Sequence[Mappin
             lines.append(
                 f"- `{failure.get('scenario_id') or 'run'}`: {failure['failure_type']} - {failure['message']}"
             )
+
+    if prev_summary is not None:
+        lines.append("")
+        lines.extend(_build_diff_section(summary, prev_summary))
 
     return "\n".join(lines) + "\n"
 
