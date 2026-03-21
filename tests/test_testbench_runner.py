@@ -1,4 +1,5 @@
 import json
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -1384,6 +1385,57 @@ async def test_scenario_summary_includes_error_rate_and_state_drift_count(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_scenario_summary_error_rate_counts_failed_requests_once(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.STAGING,
+        mode=TestbenchMode.REGRESSION,
+        env={
+            "SUSANOH_TESTBENCH_STAGING_BASE_URL": "https://staging.example.com",
+            "SUSANOH_TESTBENCH_STAGING_PASSWORD": "secret",
+        },
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-error-rate",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+    target_id = "acct_target_fraud_smurfing_fan_in__run-error-rate"
+
+    monkeypatch.setattr("backend.testbench_runner._build_http_client", lambda config: _DummyAsyncClient())
+
+    async def _partially_failing_request_json(
+        *,
+        client,
+        method,
+        path,
+        retry_attempts,
+        timeout_seconds,
+        headers=None,
+        data=None,
+        json_body=None,
+    ):
+        del client, retry_attempts, timeout_seconds, headers, data, json_body
+        if method == "POST" and path == "/api/v1/auth/token":
+            return {"access_token": "jwt-token"}, 11.0, None
+        if method == "POST" and path == "/api/v1/events":
+            return {"triggered_rules": []}, 12.0, None
+        if method == "GET" and path == f"/api/v1/users/{target_id}":
+            return None, 13.0, "GET user failed after 3 attempt(s): 503 Service Unavailable"
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr("backend.testbench_runner._request_json", _partially_failing_request_json)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.INFRA_DEPENDENCY_FAIL
+    assert result.summary["request_count"] == 2
+    scenario_summary = result.summary["scenarios"][0]
+    assert scenario_summary["request_count"] == 2
+    assert scenario_summary["error_rate"] == 0.5
+
+
+@pytest.mark.asyncio
 async def test_quality_gate_failure_includes_trace(tmp_path):
     """Quality gate failures carry a trace with triggered_rules, state_snapshot, observed_state_path."""
     scenarios = _passing_scenarios()
@@ -1468,7 +1520,10 @@ def test_find_previous_run_summary_returns_none_when_empty(tmp_path):
     (tmp_path / "runs").mkdir()
     current_dir = tmp_path / "runs" / "run-current"
     current_dir.mkdir()
-    assert _find_previous_run_summary(current_dir) is None
+    assert _find_previous_run_summary(
+        current_dir,
+        {"profile": "local", "mode": "regression", "dataset": "testbench-fixture"},
+    ) is None
 
 
 def test_find_previous_run_summary_ignores_current_run(tmp_path):
@@ -1477,22 +1532,57 @@ def test_find_previous_run_summary_ignores_current_run(tmp_path):
     current_dir = runs_root / "run-current"
     current_dir.mkdir()
     # Write a summary for the current run (should be ignored)
-    (current_dir / "summary.json").write_text(json.dumps({"run_id": "run-current"}), encoding="utf-8")
-    assert _find_previous_run_summary(current_dir) is None
+    (current_dir / "summary.json").write_text(
+        json.dumps({
+            "run_id": "run-current",
+            "profile": "local",
+            "mode": "regression",
+            "dataset": "testbench-fixture",
+        }),
+        encoding="utf-8",
+    )
+    assert _find_previous_run_summary(
+        current_dir,
+        {"profile": "local", "mode": "regression", "dataset": "testbench-fixture"},
+    ) is None
 
 
-def test_find_previous_run_summary_returns_most_recent(tmp_path):
+def test_find_previous_run_summary_returns_most_recent_matching_run(tmp_path):
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     current_dir = runs_root / "run-current"
     current_dir.mkdir()
-    prev_dir = runs_root / "run-prev"
-    prev_dir.mkdir()
-    (prev_dir / "summary.json").write_text(json.dumps({"run_id": "run-prev"}), encoding="utf-8")
+    prev_match_dir = runs_root / "run-prev-match"
+    prev_match_dir.mkdir()
+    (prev_match_dir / "summary.json").write_text(
+        json.dumps({
+            "run_id": "run-prev-match",
+            "profile": "local",
+            "mode": "regression",
+            "dataset": "testbench-fixture",
+        }),
+        encoding="utf-8",
+    )
+    prev_other_mode_dir = runs_root / "run-prev-live"
+    prev_other_mode_dir.mkdir()
+    (prev_other_mode_dir / "summary.json").write_text(
+        json.dumps({
+            "run_id": "run-prev-live",
+            "profile": "staging",
+            "mode": "live",
+            "dataset": "testbench-fixture",
+        }),
+        encoding="utf-8",
+    )
+    os.utime(prev_match_dir, (1_700_000_000, 1_700_000_000))
+    os.utime(prev_other_mode_dir, (1_700_000_100, 1_700_000_100))
 
-    result = _find_previous_run_summary(current_dir)
+    result = _find_previous_run_summary(
+        current_dir,
+        {"profile": "local", "mode": "regression", "dataset": "testbench-fixture"},
+    )
     assert result is not None
-    assert result["run_id"] == "run-prev"
+    assert result["run_id"] == "run-prev-match"
 
 
 @pytest.mark.asyncio
@@ -1509,6 +1599,9 @@ async def test_report_includes_diff_when_previous_run_exists(tmp_path):
         json.dumps({
             "run_id": "run-prev",
             "status": "passed",
+            "profile": "local",
+            "mode": "regression",
+            "dataset": "testbench-fixture",
             "success_rate": 1.0,
             "latency_ms": {"p95": 10.0},
             "scenarios": [],
@@ -1530,6 +1623,42 @@ async def test_report_includes_diff_when_previous_run_exists(tmp_path):
     report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
     assert "## Diff from Previous Run" in report_text
     assert "run-prev" in report_text
+
+
+@pytest.mark.asyncio
+async def test_report_excludes_diff_when_previous_run_profile_or_mode_mismatch(tmp_path):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    artifacts_root = tmp_path / "artifacts"
+    prev_run_dir = artifacts_root / "run-prev-live"
+    prev_run_dir.mkdir(parents=True)
+    (prev_run_dir / "summary.json").write_text(
+        json.dumps({
+            "run_id": "run-prev-live",
+            "status": "passed",
+            "profile": "staging",
+            "mode": "live",
+            "dataset": "testbench-fixture",
+            "success_rate": 1.0,
+            "latency_ms": {"p95": 10.0},
+            "scenarios": [],
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=artifacts_root,
+        run_id="run-current",
+    )
+
+    result = await run_testbench(config)
+
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Diff from Previous Run" not in report_text
 
 
 @pytest.mark.asyncio

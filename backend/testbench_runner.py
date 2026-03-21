@@ -691,6 +691,7 @@ async def _run_scenario(
     failures: list[dict[str, Any]] = []
     event_pairs: list[tuple[GameEventLog, dict[str, Any]]] = []
     api_available = True
+    request_count = 0
     error_count = 0
     fault_observation = FaultInjectionObservation()
 
@@ -702,6 +703,7 @@ async def _run_scenario(
     ):
         with _local_background_l2_suppressed(config.profile):
             for event in namespaced.events:
+                request_count += 1
                 payload, latency_ms, error = await _request_json(
                     client=client,
                     method="POST",
@@ -739,6 +741,7 @@ async def _run_scenario(
                     fault_injection=namespaced.fault_injection,
                 )
             else:
+                request_count += 1
                 analysis_payload, analysis_latency_ms, analysis_error = await _request_json(
                     client=client,
                     method="POST",
@@ -770,6 +773,7 @@ async def _run_scenario(
         transitions_payload: list[dict[str, Any]] = []
         analyses_payload: list[dict[str, Any]] = []
         if api_available:
+            request_count += 1
             user_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -796,6 +800,7 @@ async def _run_scenario(
                 user_payload = None
 
         if api_available:
+            request_count += 1
             transitions_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -822,6 +827,7 @@ async def _run_scenario(
                 transitions_payload = []
 
         if api_available:
+            request_count += 1
             analyses_payload, latency_ms, error = await _request_json(
                 client=client,
                 method="GET",
@@ -953,8 +959,8 @@ async def _run_scenario(
         "fault_injection_applied": applied_fault_injection,
         "fault_injection_observations": fault_observation.operations,
         "analysis_reasoning": latest_analysis.get("reasoning") if latest_analysis else None,
-        "request_count": len(latencies_ms),
-        "error_rate": round(error_count / (len(latencies_ms) + error_count), 4) if (len(latencies_ms) + error_count) > 0 else 0.0,
+        "request_count": request_count,
+        "error_rate": round(error_count / request_count, 4) if request_count > 0 else 0.0,
         "state_drift_count": 0,
         "latency_ms": latency_stats,
         "quality_gates": gates,
@@ -1458,6 +1464,7 @@ def _build_terminal_summary(
         failed = execution_totals["failed"]
 
     success_rate = round((passed / total), 4) if total else 0.0
+    request_count = sum(int(scenario.get("request_count", 0)) for scenario in scenario_results)
     latency_summary = _latency_summary(latencies_ms)
     slo = load_operational_testbench_policy().slos[config.mode]
     slo_passed = (
@@ -1478,7 +1485,7 @@ def _build_terminal_summary(
         "scenarios_total": total,
         "scenarios_passed": passed,
         "scenarios_failed": failed,
-        "request_count": len(latencies_ms),
+        "request_count": request_count,
         "success_rate": success_rate,
         "latency_ms": latency_summary,
         "slo": {
@@ -1498,28 +1505,43 @@ def _build_terminal_summary(
     return summary
 
 
-def _find_previous_run_summary(artifacts_dir: Path) -> dict[str, Any] | None:
+def _matches_previous_run_summary(
+    candidate: Mapping[str, Any],
+    current_summary: Mapping[str, Any],
+) -> bool:
+    return (
+        candidate.get("profile") == current_summary.get("profile")
+        and candidate.get("mode") == current_summary.get("mode")
+        and candidate.get("dataset") == current_summary.get("dataset")
+    )
+
+
+def _find_previous_run_summary(
+    artifacts_dir: Path,
+    current_summary: Mapping[str, Any],
+) -> dict[str, Any] | None:
     runs_root = artifacts_dir.parent
     current_run_id = artifacts_dir.name
-    candidates: list[tuple[float, Path]] = []
+    candidates: list[tuple[float, dict[str, Any]]] = []
     try:
         for entry in runs_root.iterdir():
             if entry.is_dir() and entry.name != current_run_id:
                 summary_file = entry / "summary.json"
                 if summary_file.exists():
                     try:
-                        candidates.append((entry.stat().st_mtime, summary_file))
+                        candidate = json.loads(summary_file.read_text(encoding="utf-8"))
+                        if _matches_previous_run_summary(candidate, current_summary):
+                            candidates.append((entry.stat().st_mtime, candidate))
                     except OSError:
+                        pass
+                    except Exception:
                         pass
     except OSError:
         return None
     if not candidates:
         return None
     _, latest = max(candidates)
-    try:
-        return json.loads(latest.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    return latest
 
 
 def _build_diff_section(current: Mapping[str, Any], prev: Mapping[str, Any]) -> list[str]:
@@ -1571,7 +1593,7 @@ def _write_artifacts(
     summary: dict[str, Any],
     failures: list[dict[str, Any]],
 ) -> None:
-    prev_summary = _find_previous_run_summary(artifacts_dir)
+    prev_summary = _find_previous_run_summary(artifacts_dir, summary)
     (artifacts_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=True, indent=2),
         encoding="utf-8",
