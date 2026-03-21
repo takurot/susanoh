@@ -13,6 +13,9 @@ from backend.testbench_runner import (
     RunnerExitCode,
     RunnerProfile,
     TestbenchDataset,
+    _build_diff_section,
+    _build_report_markdown,
+    _find_previous_run_summary,
     _select_scenarios,
     apply_run_namespace,
     load_runner_config,
@@ -1349,3 +1352,201 @@ async def test_run_testbench_staging_live_skips_probe_when_initial_auth_fails(tm
     root = ET.fromstring((result.artifacts_dir / "junit.xml").read_text(encoding="utf-8"))
     assert root.attrib["tests"] == "0"
     assert root.attrib["errors"] == "1"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.6.5: Metrics collection, failure trace, diff report
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenario_summary_includes_error_rate_and_state_drift_count(tmp_path):
+    """Passing scenario reports error_rate=0.0 and state_drift_count=0."""
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-metrics",
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    for scenario_summary in result.summary["scenarios"]:
+        assert "error_rate" in scenario_summary
+        assert "state_drift_count" in scenario_summary
+        assert scenario_summary["error_rate"] == 0.0
+        assert scenario_summary["state_drift_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_failure_includes_trace(tmp_path):
+    """Quality gate failures carry a trace with triggered_rules, state_snapshot, observed_state_path."""
+    scenarios = _passing_scenarios()
+    scenarios[0]["expected"]["l1_primary_rules"] = ["R2"]
+    scenario_id = scenarios[0]["scenario_id"]
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-trace",
+    )
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.QUALITY_GATE_FAIL
+    gate_failure = next(
+        f for f in result.failures if f["failure_type"] == "quality_gate" and f["scenario_id"] == scenario_id
+    )
+    assert "trace" in gate_failure
+    trace = gate_failure["trace"]
+    assert "triggered_rules" in trace
+    assert "state_snapshot" in trace
+    assert "observed_state_path" in trace
+    assert isinstance(trace["triggered_rules"], list)
+    assert "state" in trace["state_snapshot"]
+    assert "target_id" in trace["state_snapshot"]
+
+
+def test_build_diff_section_reports_changed_scenarios():
+    prev = {
+        "run_id": "run-prev",
+        "status": "passed",
+        "success_rate": 0.8,
+        "latency_ms": {"p95": 50.0},
+        "scenarios": [
+            {"scenario_id": "sc_a", "passed": True},
+            {"scenario_id": "sc_b", "passed": True},
+            {"scenario_id": "sc_removed", "passed": False},
+        ],
+    }
+    current = {
+        "run_id": "run-curr",
+        "status": "failed",
+        "success_rate": 0.5,
+        "latency_ms": {"p95": 75.0},
+        "scenarios": [
+            {"scenario_id": "sc_a", "passed": True},
+            {"scenario_id": "sc_b", "passed": False},
+            {"scenario_id": "sc_new", "passed": True},
+        ],
+    }
+    lines = _build_diff_section(current, prev)
+    text = "\n".join(lines)
+
+    assert "run-prev" in text
+    assert "sc_b" in text
+    assert "PASS" in text
+    assert "FAIL" in text
+    assert "sc_new" in text
+    assert "NEW" in text
+    assert "sc_removed" in text
+    assert "REMOVED" in text
+
+
+def test_build_diff_section_no_changes():
+    summary = {
+        "run_id": "run-prev",
+        "status": "passed",
+        "success_rate": 1.0,
+        "latency_ms": {"p95": 30.0},
+        "scenarios": [{"scenario_id": "sc_a", "passed": True}],
+    }
+    lines = _build_diff_section(summary, summary)
+    text = "\n".join(lines)
+    assert "No scenario-level changes" in text
+
+
+def test_find_previous_run_summary_returns_none_when_empty(tmp_path):
+    (tmp_path / "runs").mkdir()
+    current_dir = tmp_path / "runs" / "run-current"
+    current_dir.mkdir()
+    assert _find_previous_run_summary(current_dir) is None
+
+
+def test_find_previous_run_summary_ignores_current_run(tmp_path):
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    current_dir = runs_root / "run-current"
+    current_dir.mkdir()
+    # Write a summary for the current run (should be ignored)
+    (current_dir / "summary.json").write_text(json.dumps({"run_id": "run-current"}), encoding="utf-8")
+    assert _find_previous_run_summary(current_dir) is None
+
+
+def test_find_previous_run_summary_returns_most_recent(tmp_path):
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    current_dir = runs_root / "run-current"
+    current_dir.mkdir()
+    prev_dir = runs_root / "run-prev"
+    prev_dir.mkdir()
+    (prev_dir / "summary.json").write_text(json.dumps({"run_id": "run-prev"}), encoding="utf-8")
+
+    result = _find_previous_run_summary(current_dir)
+    assert result is not None
+    assert result["run_id"] == "run-prev"
+
+
+@pytest.mark.asyncio
+async def test_report_includes_diff_when_previous_run_exists(tmp_path):
+    """report.md contains a diff section when a previous run summary exists."""
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    artifacts_root = tmp_path / "artifacts"
+
+    # Write a previous run summary
+    prev_run_dir = artifacts_root / "run-prev"
+    prev_run_dir.mkdir(parents=True)
+    (prev_run_dir / "summary.json").write_text(
+        json.dumps({
+            "run_id": "run-prev",
+            "status": "passed",
+            "success_rate": 1.0,
+            "latency_ms": {"p95": 10.0},
+            "scenarios": [],
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=artifacts_root,
+        run_id="run-current",
+    )
+
+    result = await run_testbench(config)
+
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Diff from Previous Run" in report_text
+    assert "run-prev" in report_text
+
+
+@pytest.mark.asyncio
+async def test_report_excludes_diff_when_no_previous_run(tmp_path):
+    """report.md has no diff section when no previous run exists."""
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.REGRESSION,
+        env={},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-first",
+    )
+
+    result = await run_testbench(config)
+
+    report_text = (result.artifacts_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Diff from Previous Run" not in report_text
