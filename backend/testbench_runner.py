@@ -594,6 +594,7 @@ async def run_testbench(config: RunnerConfig) -> TestbenchRunResult:
                                 soak_aggregates,
                                 result["scenario"],
                                 result["latencies_ms"],
+                                error_count=int(result.get("error_count", 0)),
                             )
                             failures.extend(
                                 _annotate_failures_for_iteration(result["failures"], iteration=iteration)
@@ -969,6 +970,7 @@ async def _run_scenario(
         "scenario": scenario_summary,
         "failures": failures,
         "latencies_ms": latencies_ms,
+        "error_count": error_count,
     }
 
 
@@ -1037,6 +1039,8 @@ def _record_soak_execution(
     aggregates: dict[str, dict[str, Any]],
     scenario_summary: Mapping[str, Any],
     latencies_ms: Sequence[float],
+    *,
+    error_count: int,
 ) -> None:
     scenario_id = str(scenario_summary["scenario_id"])
     aggregate = aggregates.get(scenario_id)
@@ -1054,6 +1058,7 @@ def _record_soak_execution(
             "failed_iterations": 0,
             "state_drift_count": 0,
             "request_count": 0,
+            "error_count": 0,
             "latencies_ms": [],
             "iteration_p95s": [],
             "failed_gates": set(),
@@ -1080,6 +1085,7 @@ def _record_soak_execution(
     else:
         aggregate["failed_iterations"] += 1
     aggregate["request_count"] += int(scenario_summary.get("request_count", 0))
+    aggregate["error_count"] += error_count
     aggregate["latencies_ms"].extend(float(value) for value in latencies_ms)
     aggregate["iteration_p95s"].append(float(scenario_summary.get("latency_ms", {}).get("p95", 0.0)))
     aggregate["failed_gates"].update(str(gate) for gate in scenario_summary.get("failed_gates", []))
@@ -1222,6 +1228,11 @@ def _finalize_soak_scenario_results(
                 "fault_injection_applied": aggregate["fault_injection_applied"],
                 "analysis_reasoning": aggregate["last_analysis_reasoning"],
                 "request_count": aggregate["request_count"],
+                "error_rate": (
+                    round(aggregate["error_count"] / aggregate["request_count"], 4)
+                    if aggregate["request_count"] > 0
+                    else 0.0
+                ),
                 "latency_ms": _latency_summary(aggregate["latencies_ms"]),
                 "iteration_latency_ms": {
                     "first_p95": iteration_p95s[0] if iteration_p95s else 0.0,
@@ -1544,6 +1555,22 @@ def _find_previous_run_summary(
     return latest
 
 
+def _is_benign_scenario(scenario: Mapping[str, Any]) -> bool:
+    scenario_id = str(scenario.get("scenario_id", ""))
+    risk_tier = str(scenario.get("risk_tier", ""))
+    return risk_tier in {"low", "medium"} or scenario_id.startswith(("gray_", "legit_"))
+
+
+def _false_positive_rate(summary: Mapping[str, Any]) -> float:
+    benign_scenarios = [
+        scenario for scenario in summary.get("scenarios", []) if isinstance(scenario, Mapping) and _is_benign_scenario(scenario)
+    ]
+    if not benign_scenarios:
+        return 0.0
+    failed = sum(1 for scenario in benign_scenarios if not bool(scenario.get("passed")))
+    return round(failed / len(benign_scenarios), 4)
+
+
 def _build_diff_section(current: Mapping[str, Any], prev: Mapping[str, Any]) -> list[str]:
     lines: list[str] = [
         "## Diff from Previous Run",
@@ -1555,12 +1582,23 @@ def _build_diff_section(current: Mapping[str, Any], prev: Mapping[str, Any]) -> 
     prev_success = float(prev.get("success_rate", 0.0))
     curr_success = float(current.get("success_rate", 0.0))
     success_delta = round(curr_success - prev_success, 4)
+    prev_failure_count = int(prev.get("failure_count", prev.get("scenarios_failed", 0)))
+    curr_failure_count = int(current.get("failure_count", current.get("scenarios_failed", 0)))
+    failure_delta = curr_failure_count - prev_failure_count
     prev_p95 = float(prev.get("latency_ms", {}).get("p95", 0.0))
     curr_p95 = float(current.get("latency_ms", {}).get("p95", 0.0))
     p95_delta = round(curr_p95 - prev_p95, 2)
+    prev_false_positive_rate = _false_positive_rate(prev)
+    curr_false_positive_rate = _false_positive_rate(current)
+    false_positive_delta = round(curr_false_positive_rate - prev_false_positive_rate, 4)
     lines.extend([
         f"- Success Rate: `{prev_success}` → `{curr_success}` (Δ `{success_delta:+.4f}`)",
+        f"- Failure Count: `{prev_failure_count}` → `{curr_failure_count}` (Δ `{failure_delta:+d}`)",
         f"- Latency p95: `{prev_p95}` ms → `{curr_p95}` ms (Δ `{p95_delta:+.2f}` ms)",
+        (
+            f"- False Positive Rate: `{prev_false_positive_rate}` → `{curr_false_positive_rate}` "
+            f"(Δ `{false_positive_delta:+.4f}`)"
+        ),
         "",
     ])
     prev_scenarios = {s["scenario_id"]: s for s in prev.get("scenarios", [])}
