@@ -1084,6 +1084,7 @@ async def test_run_testbench_local_soak_replays_iterations_and_aggregates_metric
     assert scenario["failed_iterations"] == 0
     assert scenario["state_drift_count"] == 0
     assert scenario["request_count"] > 0
+    assert scenario["error_rate"] == 0.0
     assert scenario["iteration_latency_ms"]["first_p95"] >= 0.0
     assert scenario["iteration_latency_ms"]["last_p95"] >= 0.0
 
@@ -1155,6 +1156,70 @@ async def test_run_testbench_local_soak_detects_state_drift(tmp_path, monkeypatc
     assert result.summary["soak"]["iterations_planned"] == 2
     assert result.summary["soak"]["state_drift_count"] == 1
     assert result.summary["scenarios"][0]["state_drift_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_testbench_local_soak_aggregates_error_rate(tmp_path, monkeypatch):
+    scenarios = _passing_scenarios()
+    fixture_dir = _write_fixture(tmp_path, scenarios=scenarios)
+    config = load_runner_config(
+        profile=RunnerProfile.LOCAL,
+        mode=TestbenchMode.SOAK,
+        env={"SUSANOH_TESTBENCH_SOAK_ITERATIONS": "2"},
+        fixtures_dir=fixture_dir,
+        output_root=tmp_path / "artifacts",
+        run_id="run-soak-error-rate",
+        selected_scenarios=["fraud_smurfing_fan_in"],
+    )
+
+    scenario_calls = 0
+
+    async def _fake_run_scenario(*, client, config, scenario, auth_headers, event_headers):
+        del client, config, auth_headers, event_headers
+        nonlocal scenario_calls
+        scenario_calls += 1
+        return {
+            "scenario": {
+                "scenario_id": scenario.scenario_id,
+                "title": scenario.title,
+                "risk_tier": scenario.risk_tier,
+                "target_id": f"{scenario.expected.target_id}__{scenario_calls}",
+                "passed": True,
+                "failed_gates": [],
+                "expected_l1_rules": [],
+                "observed_l1_rules": [],
+                "expected_state_path": ["NORMAL"],
+                "observed_state_path": ["NORMAL"],
+                "expected_l2_actions": ["NORMAL"],
+                "max_p95_ms": scenario.expected.max_p95_ms,
+                "observed_l2_action": "NORMAL",
+                "final_state": "NORMAL",
+                "fault_injection": None,
+                "fault_injection_applied": False,
+                "analysis_reasoning": None,
+                "request_count": 2,
+                "latency_ms": {"p50": 8.0, "p95": 9.0, "p99": 10.0},
+                "quality_gates": {
+                    "l1_rule_match": True,
+                    "state_path_match": True,
+                    "l2_action_range_match": True,
+                    "api_availability": True,
+                    "latency_p95_match": True,
+                },
+            },
+            "failures": [],
+            "latencies_ms": [8.0, 9.0],
+            "error_count": 1 if scenario_calls == 2 else 0,
+        }
+
+    monkeypatch.setattr("backend.testbench_runner._run_scenario", _fake_run_scenario)
+
+    result = await run_testbench(config)
+
+    assert result.exit_code is RunnerExitCode.ALL_PASS
+    assert result.summary["request_count"] == 4
+    assert result.summary["scenarios"][0]["request_count"] == 4
+    assert result.summary["scenarios"][0]["error_rate"] == 0.25
 
 
 @pytest.mark.asyncio
@@ -1472,28 +1537,32 @@ def test_build_diff_section_reports_changed_scenarios():
         "run_id": "run-prev",
         "status": "passed",
         "success_rate": 0.8,
+        "failure_count": 1,
         "latency_ms": {"p95": 50.0},
         "scenarios": [
-            {"scenario_id": "sc_a", "passed": True},
-            {"scenario_id": "sc_b", "passed": True},
-            {"scenario_id": "sc_removed", "passed": False},
+            {"scenario_id": "sc_a", "passed": True, "risk_tier": "high"},
+            {"scenario_id": "sc_b", "passed": True, "risk_tier": "low"},
+            {"scenario_id": "sc_removed", "passed": False, "risk_tier": "high"},
         ],
     }
     current = {
         "run_id": "run-curr",
         "status": "failed",
         "success_rate": 0.5,
+        "failure_count": 2,
         "latency_ms": {"p95": 75.0},
         "scenarios": [
-            {"scenario_id": "sc_a", "passed": True},
-            {"scenario_id": "sc_b", "passed": False},
-            {"scenario_id": "sc_new", "passed": True},
+            {"scenario_id": "sc_a", "passed": True, "risk_tier": "high"},
+            {"scenario_id": "sc_b", "passed": False, "risk_tier": "low"},
+            {"scenario_id": "sc_new", "passed": True, "risk_tier": "high"},
         ],
     }
     lines = _build_diff_section(current, prev)
     text = "\n".join(lines)
 
     assert "run-prev" in text
+    assert "Failure Count" in text
+    assert "False Positive Rate" in text
     assert "sc_b" in text
     assert "PASS" in text
     assert "FAIL" in text
