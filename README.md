@@ -112,6 +112,27 @@ npm run dev
 
 ブラウザで `http://localhost:5173` を開き、ダッシュボードにアクセスします。
 
+### 3. Docker でバックエンドを起動
+
+最小の production 向け起動手段として、root `Dockerfile` に multi-stage build を追加しています。
+このイメージは FastAPI バックエンドを対象としており、`docker-compose.yml` によるフルスタック起動は Phase 2.1 の次タスクです。
+
+```bash
+docker build -t susanoh-backend .
+
+docker run --rm -p 8000:8000 \
+  -e GEMINI_API_KEY=<your_api_key> \
+  -e REDIS_URL=redis://host.docker.internal:6379/0 \
+  -e DATABASE_URL=postgresql://user:pass@host.docker.internal:5432/susanoh \
+  susanoh-backend
+```
+
+メモ:
+
+- `GEMINI_API_KEY` は `POST /api/v1/analyze` や L2 実行時に必要です。未設定でも API プロセス自体は起動できますが、L2 は safe-side fallback になります。
+- `REDIS_URL` と `DATABASE_URL` は任意です。未設定時は Redis/DB なしの縮退構成で起動します。
+- frontend はこのイメージには含めていません。UI は従来どおり `frontend/` を別プロセスで起動してください。
+
 ---
 
 ## Live API Verification (Staging)
