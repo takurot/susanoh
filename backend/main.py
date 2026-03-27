@@ -43,17 +43,20 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Setup arq pool
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    try:
-        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
-    except Exception as e:
-        logger.warning(f"Failed to create arq pool (continuing without async worker): {e}")
-        app.state.arq_pool = None
+    redis_url = os.environ.get("REDIS_URL", "").strip()
+    app.state.arq_pool = None
+    if redis_url:
+        try:
+            app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+        except Exception as e:
+            logger.warning(f"Failed to create arq pool (continuing without async worker): {e}")
+            app.state.arq_pool = None
     
     yield
     # Shutdown logic
     if app.state.arq_pool:
         await app.state.arq_pool.close()
+        app.state.arq_pool = None
     await redis_client.close()
 
 app = FastAPI(title="Susanoh", version="0.1.0", lifespan=lifespan)
