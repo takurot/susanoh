@@ -58,6 +58,17 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python -m pytest tests -q
 
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t susanoh-backend .
+
   frontend:
     name: Frontend Lint/Test/Build (Node 22)
     runs-on: ubuntu-latest
